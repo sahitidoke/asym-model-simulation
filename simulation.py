@@ -43,7 +43,7 @@ def gig_log_moment_fd(lam, chi, psi, h=1e-4):
     log_den = np.log(kve(lam - h, x))
     return 0.5 * np.log(chi / psi) + (log_num - log_den) / (2 * h)
 
-def run_em(Y, n_iter=60, rho=0.05, verbose=True, seed=1):
+def run_em(Y, n_iter=60, rho=0.05, verbose=True, seed=1, err=1e-5):
     n, p = Y.shape
     mu = Y.mean(axis=0)
     gamma = np.zeros(p)             
@@ -53,8 +53,8 @@ def run_em(Y, n_iter=60, rho=0.05, verbose=True, seed=1):
     Theta = np.diag(theta_bar)        
 
     hist = {"mu": [], "eta": [], "nu": [], "theta_diag": []}
-
-    for it in range(n_iter):
+    it = 0
+    while True:
         lam = -2.0 / nu - 0.5                                   # (p,)
         chi = 4.0 / nu[None, :] + theta_bar[None, :] * (Y - mu[None, :]) ** 2   # (n,p)
         psi = np.clip(theta_bar * eta ** 2 * nu ** 2, 1e-2, None)               # (p,)
@@ -118,18 +118,19 @@ def run_em(Y, n_iter=60, rho=0.05, verbose=True, seed=1):
         hist["nu"].append(nu.copy())
         hist["theta_diag"].append(theta_bar.copy())
 
-        if verbose and (it % 5 == 0 or it == n_iter - 1):
-            print(f"iter {it:3d} | param-change {diff:.5f}")
+        if verbose and (it % 5 == 0):
+            print(f"iter {it:3d} | param-change {diff:.10f}")
 
-        if diff < 1e-5 and it > 5:
+        if diff < err and it > 5:
             if verbose:
                 print(f"Converged at iteration {it}.")
             break
+        it += 1
 
     return {"mu": mu, "eta": eta, "nu": nu, "Theta": Theta, "history": hist}
 
+result = run_em(Y, n_iter=150, rho=0.05, err=1e-5)
 
-result = run_em(Y, n_iter=150, rho=0.05)
 print(f"{'':>10} {'true':>30} {'estimated':>30}")
 print(f"{'mu':>10} {np.round(mu_true, 3)} {np.round(result['mu'], 3)}")
 print(f"{'eta':>10} {np.round(eta_true, 3)} {np.round(result['eta'], 3)}")

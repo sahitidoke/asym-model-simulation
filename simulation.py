@@ -18,11 +18,11 @@ def simulate_aat_data(n, p, mu, eta, nu, Theta_true, rng):
     Y = mu[None, :] + eta[None, :] * nu[None, :] * tau + np.sqrt(tau) * X
     return Y, tau
 
-p = 5
-n = 2000
-mu_true  = np.array([1.0, -2.0, 0.5, 0.0, 3.0])
-eta_true = np.array([1.5, -1.0, 0.0, 2.0, -1.5])    
-nu_true  = np.array([0.15, 0.25, 0.35, 0.10, 0.30]) 
+p = 10
+n = 5000
+mu_true  = np.array([1.0, -2.0, 0.5, 0.0, 3.0, 1.0, -2.0, 0.5, 0.0, 3.0])
+eta_true = np.array([1.5, -1.0, 0.0, 2.0, -1.5, 1.5, -1.0, 0.0, 2.0, -1.5])    
+nu_true  = np.array([0.15, 0.25, 0.35, 0.10, 0.30, 0.15, 0.25, 0.35, 0.10, 0.30]) 
 Theta_true = np.eye(p) * 2.0
 for j in range(p - 1):
     Theta_true[j, j + 1] = Theta_true[j + 1, j] = 0.5
@@ -93,8 +93,21 @@ def run_em(Y, n_iter=60, rho=0.05, verbose=True, seed=1, err=1e-3):
                                        method="bounded")
                 nu_new[j] = res.x
         eta_new = gamma_new / nu_new
-        z_j = (M_neg_half * (Y - mu_new[None, :]) - M_pos_half * gamma_new[None, :])
-        S_tau = (z_j.T @ z_j) / n          
+
+        z_mean = (
+            M_neg_half * (Y - mu_new[None, :])
+            - M_pos_half * gamma_new[None, :]
+        )
+
+        S_tau = (z_mean.T @ z_mean) / n
+
+        S_diag = (
+            M_neg1 * (Y - mu_new[None, :]) ** 2
+            + M_pos1 * gamma_new[None, :] ** 2
+            - 2.0 * (Y - mu_new[None, :]) * gamma_new[None, :]
+        ).mean(axis=0)
+
+        np.fill_diagonal(S_tau, S_diag)
         S_tau = (S_tau + S_tau.T) / 2.0
 
         diag_cap = np.median(np.diag(S_tau)) * 20.0
@@ -131,7 +144,7 @@ def run_em(Y, n_iter=60, rho=0.05, verbose=True, seed=1, err=1e-3):
 
     return {"mu": mu, "eta": eta, "nu": nu, "Theta": Theta, "history": hist}
 
-result = run_em(Y, n_iter=150, rho=0.05, err=1e-5)
+result = run_em(Y, n_iter=150, rho=0.05, err=1e-3)
 
 print(f"{'':>10} {'true':>30} {'estimated':>30}")
 print(f"{'mu':>10} {np.round(mu_true, 3)} {np.round(result['mu'], 3)}")

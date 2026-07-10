@@ -45,7 +45,7 @@ def gig_log_moment_fd(lam, chi, psi, h=1e-4):
     log_den = np.log(kve(lam - h, x))
     return 0.5 * np.log(chi / psi) + (log_num - log_den) / (2 * h)
 
-def run_em(Y, n_iter=60, rho=0.05, verbose=True, seed=1, err=1e-5):
+def run_em(Y, n_iter=60, rho=0.05, verbose=True, seed=1, err=1e-3):
     n, p = Y.shape
     mu = Y.mean(axis=0)
     gamma = np.zeros(p)             

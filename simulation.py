@@ -2,6 +2,8 @@ import numpy as np
 from scipy.special import kve, digamma, gammaln
 from scipy.optimize import brentq, minimize_scalar
 from sklearn.covariance import graphical_lasso
+from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_absolute_percentage_error
 import matplotlib.pyplot as plt
 
 rng = np.random.default_rng(0)
@@ -135,7 +137,20 @@ print(f"{'':>10} {'true':>30} {'estimated':>30}")
 print(f"{'mu':>10} {np.round(mu_true, 3)} {np.round(result['mu'], 3)}")
 print(f"{'eta':>10} {np.round(eta_true, 3)} {np.round(result['eta'], 3)}")
 print(f"{'nu':>10} {np.round(nu_true, 3)} {np.round(result['nu'], 3)}")
-
 print("\nTrue Theta:\n", np.round(Theta_true, 3))
 print("\nEstimated Theta (glasso):\n", np.round(result["Theta"], 3))
+
+
+print("Mean squared error for mu:" , mean_squared_error(np.round(mu_true, 3), np.round(result['mu'], 3)))
+print("Mean squared error for nu:" , mean_squared_error(np.round(nu_true, 3), np.round(result['nu'], 3)))
+print("Mean squared error for eta:" , mean_squared_error(np.round(eta_true, 3), np.round(result['eta'], 3)))
+print("Mean squared error for Theta:" , mean_squared_error(np.round(Theta_true, 3), np.round(result['Theta'], 3)))
+
+print("Relative error for mu:", mean_absolute_percentage_error(np.round(mu_true, 3), np.round(result['mu'], 3)))
+print("Relative error for nu:", mean_absolute_percentage_error(np.round(nu_true, 3), np.round(result['nu'], 3)))
+print("Relative error for eta:", mean_absolute_percentage_error(np.round(eta_true, 3), np.round(result['eta'], 3)))
+print("Relative error for Theta:", mean_absolute_percentage_error(np.round(Theta_true, 3), np.round(result['Theta'], 3)))
+
+
+
 

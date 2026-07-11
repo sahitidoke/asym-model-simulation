@@ -17,7 +17,7 @@ def simulate_aat_data(n, p, mu, eta, nu, Theta_true, rng):
     return Y, tau
 
 p = 5
-n = 2000
+n = 5000
 mu_true  = np.array([1.0, -2.0, 0.5, 0.0, 3.0])
 eta_true = np.array([1.5, -1.0, 0.0, 2.0, -1.5])    
 nu_true  = np.array([0.15, 0.25, 0.35, 0.10, 0.30]) 
@@ -29,7 +29,7 @@ assert np.all(np.linalg.eigvalsh(Theta_true) > 0)
 Y, tau_true = simulate_aat_data(n, p, mu_true, eta_true, nu_true, Theta_true, rng)
 print(f"Simulated data: Y shape = {Y.shape}")
 
-result = em.run_em_diagonal(Y, n_iter=150, rho=0.05, err=1e-3, run_until_convergence = False)
+result = em.run_em_diagonal(Y, n_iter=300, rho=0.05, err=1e-3, run_until_convergence = True)
 
 print(f"{'':>10} {'true':>30} {'estimated':>30}")
 print(f"{'mu':>10} {np.round(mu_true, 3)} {np.round(result['mu'], 3)}")

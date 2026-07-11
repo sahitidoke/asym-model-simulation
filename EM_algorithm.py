@@ -16,10 +16,10 @@ def gig_log_moment_fd(lam, chi, psi, h=1e-4):
     return 0.5 * np.log(chi / psi) + (log_num - log_den) / (2 * h)
 
 
-def run_em_diagonal(Y, n_iter=60, rho=0.05, verbose=True, err=1e-3,run_until_convergence=False, seed=1):
+def run_em_diagonal(Y, n_iter=60, rho=0.05, verbose=True, err=1e-3,run_until_convergence=False):
     n, p = Y.shape
     mu = Y.mean(axis=0)
-    gamma = np.zeros(p)             
+    gamma = np.full(p, 0.5)            
     nu = np.full(p, 0.5)
     eta = gamma / nu
     theta_bar = 1.0 / Y.var(axis=0)    
@@ -28,16 +28,20 @@ def run_em_diagonal(Y, n_iter=60, rho=0.05, verbose=True, err=1e-3,run_until_con
     hist = {"mu": [], "eta": [], "nu": [], "theta_diag": []}
     it = 0
     while True:
+        # Compute GIG parameters 
         lam = -2.0 / nu - 0.5                                   # (p,)
         chi = 4.0 / nu[None, :] + theta_bar[None, :] * (Y - mu[None, :]) ** 2   # (n,p)
-        psi = np.clip(theta_bar * eta ** 2 * nu ** 2, 1e-2, None)               # (p,)
+        psi = np.clip(theta_bar * eta ** 2 * nu ** 2, 1e-12, None)               # (p,)\
+            
+        # Compute expectations
 
         M_neg1   = gig_moment(-1.0, lam[None, :], chi, psi[None, :])
         M_pos1   = gig_moment(1.0,  lam[None, :], chi, psi[None, :])
         M_neg_half = gig_moment(-0.5, lam[None, :], chi, psi[None, :])
         M_pos_half = gig_moment(0.5,  lam[None, :], chi, psi[None, :])
-        L_log = gig_log_moment_fd(lam[None, :], chi, psi[None, :])  
-
+        L_log = gig_log_moment_fd(lam[None, :], chi, psi[None, :])
+        
+        # Update parameters mu, gamma  
        
         Aj = M_neg1.sum(axis=0)                       # sum_i M_ij(-1)
         Bj = M_pos1.sum(axis=0)                        # sum_i M_ij(1)
@@ -48,21 +52,38 @@ def run_em_diagonal(Y, n_iter=60, rho=0.05, verbose=True, err=1e-3,run_until_con
         denom = np.maximum(denom, 1e-4 * n ** 2)
         mu_new = (Bj * Rj - n * Tj) / denom
         gamma_new = (Aj * Tj - n * Rj) / denom
+        
+        # Update parameters nu, eta
 
-        S_j = (L_log + M_neg1).sum(axis=0)  
+        S_j = (L_log + M_neg1).sum(axis=0)
+
         def stationarity(nu_j, S):
             a = 2.0 / nu_j
             return n * (np.log(a) + 1.0 - digamma(a)) - S
 
         nu_new = np.empty(p)
+
         for j in range(p):
             f = lambda x: stationarity(x, S_j[j])
+
             try:
-                nu_new[j] = brentq(f, 0.01, 5.0 , xtol=1e-6)
+                nu_new[j] = brentq(f, 0.01, 5.0, xtol=1e-6)
+
             except ValueError:
-                res = minimize_scalar(lambda x: f(x) ** 2, bounds=(0.01, 3.0),
-                                       method="bounded")
-                nu_new[j] = res.x
+                raise ValueError(f"Root finding failed for nu[{j}] with S_j={S_j[j]}")
+                # res = minimize_scalar(
+                #     lambda x: -(
+                #         n * (
+                #             (2.0 / x) * np.log(2.0 / x)
+                #             - gammaln(2.0 / x)
+                #         )
+                #         - (2.0 / x) * S_j[j]
+                #     ),
+                #     bounds=(0.01, 5.0),
+                #     method="bounded"
+                # )
+                # nu_new[j] = res.x
+
         eta_new = gamma_new / nu_new
 
         # Compute the expected S given the first three parameters mu, nu, eta
@@ -82,9 +103,7 @@ def run_em_diagonal(Y, n_iter=60, rho=0.05, verbose=True, err=1e-3,run_until_con
         np.fill_diagonal(S_tau, S_diag)
         S_tau = (S_tau + S_tau.T) / 2.0
 
-        diag_cap = np.median(np.diag(S_tau)) * 20.0
-        np.fill_diagonal(S_tau, np.minimum(np.diag(S_tau), diag_cap))
-        S_tau += 1e-6 * np.eye(p) 
+        S_tau += 1e-10 * np.eye(p) 
         
         # Glasso step to estimate Theta
         try:
@@ -95,7 +114,7 @@ def run_em_diagonal(Y, n_iter=60, rho=0.05, verbose=True, err=1e-3,run_until_con
             Theta_new = Theta
 
         theta_bar_new = np.diag(Theta_new).copy()
-        theta_bar_new = np.clip(theta_bar_new, 1e-6, None)
+        theta_bar_new = np.clip(theta_bar_new, 1e-10, None)
         diff = (np.abs(mu_new - mu).sum() + np.abs(eta_new - eta).sum()
                 + np.abs(nu_new - nu).sum())
 

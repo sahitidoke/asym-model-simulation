@@ -1,6 +1,6 @@
 import numpy as np
-from scipy.special import kve, digamma, gammaln
-from scipy.optimize import brentq, minimize_scalar
+from scipy.special import kve, digamma
+from scipy.optimize import brentq
 from scipy.stats import skew
 from sklearn.covariance import graphical_lasso
 
@@ -255,7 +255,10 @@ def run_em_exact(Y, n_iter=60, rho=0.05, verbose=True, err=1e-3, run_until_conve
         
         # Glasso step to estimate Theta
         try:
-            cov_glasso, Theta_new = graphical_lasso(S_tau, alpha=2 * rho / n, max_iter=200)
+            _, Theta_new = graphical_lasso(S_tau, 
+                                           alpha=rho, 
+                                           # alpha=2 * rho / n, 
+                                           max_iter=1000)
         except Exception as e:
             if verbose:
                 print(f"  [warn] glasso failed at iter {it}: {e}; keeping previous Theta")
@@ -275,7 +278,7 @@ def run_em_exact(Y, n_iter=60, rho=0.05, verbose=True, err=1e-3, run_until_conve
         if verbose and (it % 5 == 0):
             print(f"iter {it:3d} | param-change {diff:.10f}")
 
-        if (diff < err and it > 5) or (not run_until_convergence and it >= n_iter):
+        if (run_until_convergence and diff < err) or (not run_until_convergence and it >= n_iter):
             if verbose:
                 print(f"Converged at iteration {it}.")
             break

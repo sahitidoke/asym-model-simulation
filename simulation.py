@@ -1,7 +1,6 @@
 import numpy as np
 import EM_algorithm as em
 from sklearn.metrics import mean_squared_error
-import matplotlib.pyplot as plt
 
 rng = np.random.default_rng(0)
 
@@ -16,11 +15,10 @@ def simulate_aat_data(n, p, mu, eta, nu, Theta_true, rng):
     return Y, tau
 
 p = 5
-n = 5000
-mu_true  = np.array([1.0, -2.0, 0.5, 0.3, 3.0])
-eta_true = np.array([1.5, -1.0, 0.2, 2.0, -1.5])    
-# nu_true  = np.array([0.15, 0.25, 0.35, 0.10, 0.30]) 
-nu_true  = np.array([0.5,0.8,1.0,1.2,1.5])
+n = 2000
+mu_true  = np.array([1.0, -2.0, 0.5, 0.0, 3.0])
+eta_true = np.array([1.5, -1.0, 0.0, 2.0, -1.5])    
+nu_true  = np.array([0.15, 0.25, 0.35, 0.10, 0.30]) 
 Theta_true = np.eye(p) * 2.0
 for j in range(p - 1):
     Theta_true[j, j + 1] = Theta_true[j + 1, j] = 0.5
@@ -29,7 +27,7 @@ assert np.all(np.linalg.eigvalsh(Theta_true) > 0)
 Y, tau_true = simulate_aat_data(n, p, mu_true, eta_true, nu_true, Theta_true, rng)
 print(f"Simulated data: Y shape = {Y.shape}")
 
-result = em.run_em_exact(Y, n_iter=300, rho=0.05, err=1e-3, run_until_convergence = True)
+result = em.run_em_exact(Y, n_iter=1000, rho=0.05, err=1e-8, run_until_convergence = False)
 
 print(f"{'':>10} {'true':>30} {'estimated':>30}")
 print(f"{'mu':>10} {np.round(mu_true, 5)} {np.round(result['mu'], 5)}")

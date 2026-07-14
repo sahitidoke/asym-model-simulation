@@ -34,8 +34,9 @@ print(f"Simulated data: Y shape = {Y.shape}")
 VAE model fitting. Uncomment the following lines to run the VAE model fitting.
 """
 config = VAEConfig(
-    epochs=400,
+    epochs=250,
     posterior_samples=16,
+    theta_l1=0.0025,
     encoder_steps=5,
     flow_layers=6,
 )

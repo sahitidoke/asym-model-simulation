@@ -1,13 +1,15 @@
 import numpy as np
 import EM_algorithm as em
 from sklearn.metrics import mean_squared_error
+from aat_vae import VAEConfig, fit_aat_vae
+from eta_nu_profile import profile_eta_nu
 
 rng = np.random.default_rng(0)
 
 def simulate_aat_data(n, p, mu, eta, nu, Theta_true, rng):
     Psi_true = np.linalg.inv(Theta_true)
-    alpha = 2.0 / nu  
-    beta = 2.0 / nu 
+    alpha = 2.0 / nu
+    beta = 2.0 / nu
     G = rng.gamma(shape=alpha, scale=1.0 / beta, size=(n, p))
     tau = 1.0 / G                                 
     X = rng.multivariate_normal(mean=np.zeros(p), cov=Psi_true, size=n)  
@@ -17,8 +19,9 @@ def simulate_aat_data(n, p, mu, eta, nu, Theta_true, rng):
 p = 5
 n = 2000
 mu_true  = np.array([1.0, -2.0, 0.5, 0.0, 3.0])
-eta_true = np.array([1.5, -1.0, 0.0, 2.0, -1.5])    
-nu_true  = np.array([0.15, 0.25, 0.35, 0.10, 0.30]) 
+eta_true = np.array([1.5, -1.0, 0.3, 2.0, -1.5])    
+# nu_true  = np.array([0.15, 0.25, 0.35, 0.10, 0.30]) 
+nu_true  = np.array([0.5, 0.5, 0.7, 0.45, 0.30]) 
 Theta_true = np.eye(p) * 2.0
 for j in range(p - 1):
     Theta_true[j, j + 1] = Theta_true[j + 1, j] = 0.5
@@ -27,13 +30,50 @@ assert np.all(np.linalg.eigvalsh(Theta_true) > 0)
 Y, tau_true = simulate_aat_data(n, p, mu_true, eta_true, nu_true, Theta_true, rng)
 print(f"Simulated data: Y shape = {Y.shape}")
 
-result = em.run_em_exact(Y, n_iter=1000, rho=0.05, err=1e-8, run_until_convergence = False)
+"""
+VAE model fitting. Uncomment the following lines to run the VAE model fitting.
+"""
+config = VAEConfig(
+    epochs=400,
+    posterior_samples=16,
+    encoder_steps=5,
+    flow_layers=6,
+)
+model, history = fit_aat_vae(Y, config=config)
+result = model.decoder.estimates()
 
+"""
+VAE diagnostics for identifiability of eta and nu. Uncomment the following lines to run the VAE diagnostics.
+"""
+# Running diagnostics for eta and nu
+# diagnostic = profile_eta_nu(
+#     y=Y,
+#     coordinate=0,
+#     fitted_model=model,
+#     grid_size=7,
+#     profile_epochs=150,
+#     importance_samples=512,
+#     output_prefix="eta_nu_coordinate_0",
+# )
+# print(diagnostic["decision"])
+# print("Identifiable:", diagnostic["bounded_95_region"])
+# print("Touches grid boundary:", diagnostic["touches_grid_boundary"])
+# print("Eta 95% range:", diagnostic["eta_95_grid_range"])
+# print("Nu 95% range:", diagnostic["nu_95_grid_range"])
+
+"""
+ EM algorithm model fitting. Uncomment the following line to run the EM algorithm. 
+"""
+# result = em.run_em_exact(Y, n_iter=500, rho=0.05, err=1e-8, run_until_convergence = False)
+
+"""
+Error analysis seciton. Applies to all methods. Never comment this section out.
+"""
 print(f"{'':>10} {'true':>30} {'estimated':>30}")
 print(f"{'mu':>10} {np.round(mu_true, 5)} {np.round(result['mu'], 5)}")
 print(f"{'eta':>10} {np.round(eta_true, 5)} {np.round(result['eta'], 5)}")
 print(f"{'nu':>10} {np.round(nu_true, 5)} {np.round(result['nu'], 5)}")
-print(f"{'Sum of mu and gamma:\n':>10} {np.round(mu_true + eta_true * nu_true, 5)} {np.round(result['mu'] + result['eta'] * result['nu'], 5)}")
+print(f"{'Sum of mu and gamma:':>10} {np.round(mu_true + eta_true * nu_true, 5)} {np.round(result['mu'] + result['eta'] * result['nu'], 5)}")
 
 print("\nTrue Theta:\n", np.round(Theta_true, 5))
 print("\nEstimated Theta (glasso):\n", np.round(result["Theta"], 5))
@@ -50,7 +90,6 @@ print("Relative error for mu:", relative_error(mu_true, result["mu"]))
 print("Relative error for nu:", relative_error(nu_true, result["nu"]))
 print("Relative error for eta:", relative_error(eta_true, result["eta"]))
 print("Relative error for Theta:", relative_error(Theta_true, result["Theta"]))
-
 
 
 

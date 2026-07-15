@@ -17,7 +17,7 @@ def simulate_aat_data(n, p, mu, eta, nu, Theta_true, rng):
     return Y, tau
 
 p = 5
-n = 2000
+n = 5000
 mu_true  = np.array([1.0, -2.0, 0.5, 0.0, 3.0])
 eta_true = np.array([1.5, -1.0, 0.3, 2.0, -1.5])    
 # nu_true  = np.array([0.15, 0.25, 0.35, 0.10, 0.30]) 

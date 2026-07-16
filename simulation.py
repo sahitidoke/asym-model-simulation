@@ -1,13 +1,15 @@
 """
 Running instructions (run in terminal):
 # VAE without diagnostics
-python simulation.py --method VAE
+python simulation.py --method vae
 
 # VAE with identifiability diagnostics
-python simulation.py --method VAE --diagnostics
+python simulation.py --method vae --diagnostics
 
 # EM
-python simulation.py --method EM
+python simulation.py --method em_diagonal
+python simulation.py --method em_exact
+python simulation.py --method em_mcmc
 """
 
 import argparse
@@ -57,7 +59,7 @@ parser = argparse.ArgumentParser(
 parser.add_argument(
     "--method",
     type=str.upper,
-    choices=["VAE", "EM_EXACT", "EM_DIAGONAL"],
+    choices=["VAE", "EM_EXACT", "EM_DIAGONAL", "EM_MCMC"],
     default="VAE",
     help="Parameter estimation method. Default: VAE.",
 )
@@ -127,7 +129,17 @@ elif args.method == "EM_DIAGONAL":
         err=1e-8,
         run_until_convergence=False,
     )
+elif args.method == "EM_MCMC":
+    if args.diagnostics:
+        parser.error("--diagnostics can only be used with --method VAE")
 
+    result = em.run_em_MCMC(
+        Y,
+        n_iter=500,
+        rho=0.05,
+        err=1e-8,
+        run_until_convergence=False,
+    )
 """
 Error analysis section. Applies to all methods. Never comment this section out.
 """

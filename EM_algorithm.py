@@ -285,3 +285,442 @@ def run_em_exact(Y, n_iter=60, rho=0.05, verbose=True, err=1e-3, run_until_conve
         it += 1
 
     return {"mu": mu, "eta": eta, "nu": nu, "Theta": Theta, "history": hist}
+
+def _sample_log_tau(
+    Y,
+    mu,
+    gamma,
+    nu,
+    Theta,
+    state,
+    burn,
+    samples,
+    thin,
+    step,
+    rng,
+):
+    """
+    Draw samples from p(log(tau) | Y, mu, gamma, nu, Theta)
+    using Metropolis-within-Gibbs.
+    """
+    n, p = Y.shape
+
+    a = beta = 2.0 / nu
+    residual = Y - mu
+
+    U = state.copy()
+    step = np.broadcast_to(
+        np.asarray(step, dtype=float),
+        (p,),
+    ).copy()
+
+    Z = (
+        np.exp(-U / 2.0) * residual
+        - np.exp(U / 2.0) * gamma
+    )
+
+    draws = np.empty((samples, n, p))
+    accepted = np.zeros(p)
+    proposed = np.zeros(p)
+    saved = 0
+
+    total_sweeps = burn + samples * thin
+
+    for sweep in range(total_sweeps):
+        for j in range(p):
+            old = U[:, j].copy()
+            new = old + step[j] * rng.standard_normal(n)
+
+            # Prevent exponential overflow without clipping proposals.
+            valid = np.abs(new) < 30.0
+
+            new_z = np.zeros(n)
+
+            new_z[valid] = (
+                np.exp(-new[valid] / 2.0)
+                * residual[valid, j]
+                - np.exp(new[valid] / 2.0)
+                * gamma[j]
+            )
+
+            delta_z = np.zeros(n)
+            delta_z[valid] = (
+                new_z[valid] - Z[valid, j]
+            )
+
+            # Change in z^T Theta z when only coordinate j changes.
+            delta_quadratic = (
+                2.0
+                * delta_z
+                * (Z @ Theta[:, j])
+                + Theta[j, j] * delta_z**2
+            )
+
+            log_acceptance = np.full(n, -np.inf)
+
+            log_acceptance[valid] = (
+                -(a[j] + 0.5)
+                * (new[valid] - old[valid])
+                - beta[j]
+                * (
+                    np.exp(-new[valid])
+                    - np.exp(-old[valid])
+                )
+                - 0.5 * delta_quadratic[valid]
+            )
+
+            accept = (
+                np.log(rng.random(n))
+                < np.minimum(0.0, log_acceptance)
+            )
+
+            U[accept, j] = new[accept]
+            Z[accept, j] = new_z[accept]
+
+            if sweep < burn:
+                accepted[j] += accept.sum()
+                proposed[j] += n
+
+        # Adapt proposal scales only during burn-in.
+        if (
+            sweep < burn
+            and (sweep + 1) % 25 == 0
+        ):
+            acceptance_rate = (
+                accepted
+                / np.maximum(proposed, 1.0)
+            )
+
+            step *= np.exp(
+                acceptance_rate - 0.44
+            )
+
+            step = np.clip(
+                step,
+                0.03,
+                2.0,
+            )
+
+            accepted.fill(0.0)
+            proposed.fill(0.0)
+
+        if (
+            sweep >= burn
+            and (sweep - burn) % thin == 0
+        ):
+            draws[saved] = U
+            saved += 1
+
+    return draws, U, step
+
+def run_em_MCMC(
+    Y,
+    n_iter=60,
+    rho=0.05,
+    verbose=True,
+    err=1e-3,
+    run_until_convergence=False,
+    mcmc_burn=150,
+    mcmc_warmup=30,
+    mcmc_samples=200,
+    mcmc_thin=2,
+    proposal_scale=0.35,
+    random_state=42,
+):
+    n, p = Y.shape
+
+    # Initialize parameters.
+    mu = Y.mean(axis=0)
+    nu = np.full(p, 0.5)
+
+    scale = np.maximum(
+        Y.std(axis=0, ddof=1),
+        1e-8,
+    )
+
+    gamma = (
+        0.1
+        * scale
+        * np.tanh(
+            skew(Y, axis=0, bias=False)
+        )
+    )
+
+    eta = gamma / nu
+
+    Theta = np.diag(
+        1.0 / Y.var(axis=0)
+    )
+
+    # Persistent MCMC state.
+    rng = np.random.default_rng(
+        random_state
+    )
+
+    state = np.zeros((n, p))
+
+    step = np.broadcast_to(
+        np.asarray(
+            proposal_scale,
+            dtype=float,
+        ),
+        (p,),
+    ).copy()
+
+    hist = {
+        "mu": [],
+        "eta": [],
+        "nu": [],
+        "theta_diag": [],
+    }
+
+    it = 0
+
+    while True:
+        # ==========================================================
+        # MCMC E-step
+        # ==========================================================
+
+        burn = (
+            mcmc_burn
+            if it == 0
+            else mcmc_warmup
+        )
+
+        log_tau_draws, state, step = (
+            _sample_log_tau(
+                Y=Y,
+                mu=mu,
+                gamma=gamma,
+                nu=nu,
+                Theta=Theta,
+                state=state,
+                burn=burn,
+                samples=mcmc_samples,
+                thin=mcmc_thin,
+                step=step,
+                rng=rng,
+            )
+        )
+
+        # A = tau^(-1/2), B = tau^(1/2).
+        A = np.exp(
+            -0.5 * log_tau_draws
+        )
+
+        B = np.exp(
+            0.5 * log_tau_draws
+        )
+
+        def mc_cross(X, W):
+            """Sum over observations of E[X_ij W_ik | Y]."""
+            return np.einsum(
+                "sij,sik->jk",
+                X,
+                W,
+                optimize=True,
+            ) / mcmc_samples
+
+        # ==========================================================
+        # Update mu and gamma
+        # ==========================================================
+
+        H = np.block([
+            [
+                Theta * mc_cross(A, A),
+                Theta * mc_cross(A, B),
+            ],
+            [
+                Theta * mc_cross(B, A),
+                Theta * mc_cross(B, B),
+            ],
+        ])
+
+        AY = A * Y[None, :, :]
+
+        Theta_AY = np.einsum(
+            "sik,jk->sij",
+            AY,
+            Theta,
+            optimize=True,
+        )
+
+        b_mu = np.einsum(
+            "sij,sij->j",
+            A,
+            Theta_AY,
+        ) / mcmc_samples
+
+        b_gamma = np.einsum(
+            "sij,sij->j",
+            B,
+            Theta_AY,
+        ) / mcmc_samples
+
+        b = np.concatenate([
+            b_mu,
+            b_gamma,
+        ])
+
+        mu_gamma_new = np.linalg.solve(
+            H,
+            b,
+        )
+
+        mu_new = mu_gamma_new[:p]
+        gamma_new = mu_gamma_new[p:]
+
+        # ==========================================================
+        # Update nu and eta
+        # ==========================================================
+
+        M_neg1 = np.mean(
+            A**2,
+            axis=0,
+        )
+
+        L_log = np.mean(
+            log_tau_draws,
+            axis=0,
+        )
+
+        S_j = (
+            L_log + M_neg1
+        ).sum(axis=0)
+
+        def stationarity(nu_j, S):
+            a_j = 2.0 / nu_j
+
+            return (
+                n
+                * (
+                    np.log(a_j)
+                    + 1.0
+                    - digamma(a_j)
+                )
+                - S
+            )
+
+        nu_new = np.empty(p)
+
+        for j in range(p):
+            try:
+                nu_new[j] = brentq(
+                    lambda x: stationarity(
+                        x,
+                        S_j[j],
+                    ),
+                    0.01,
+                    5.0,
+                    xtol=1e-6,
+                )
+
+            except ValueError:
+                raise ValueError(
+                    f"Root finding failed for "
+                    f"nu[{j}] with S_j={S_j[j]}"
+                )
+
+        eta_new = gamma_new / nu_new
+
+        # ==========================================================
+        # Compute expected S_tau
+        # ==========================================================
+
+        Z = (
+            A
+            * (Y - mu_new)[None, :, :]
+            - B
+            * gamma_new[None, None, :]
+        )
+
+        S_tau = np.einsum(
+            "sij,sik->jk",
+            Z,
+            Z,
+            optimize=True,
+        ) / (mcmc_samples * n)
+
+        S_tau = (
+            (S_tau + S_tau.T) / 2.0
+            + 1e-10 * np.eye(p)
+        )
+
+        # ==========================================================
+        # Update Theta using graphical lasso
+        # ==========================================================
+
+        try:
+            _, Theta_new = graphical_lasso(
+                S_tau,
+                alpha=rho,
+                max_iter=1000,
+            )
+
+        except Exception as e:
+            if verbose:
+                print(
+                    f"  [warn] glasso failed "
+                    f"at iter {it}: {e}; "
+                    f"keeping previous Theta"
+                )
+
+            Theta_new = Theta
+
+        diff = (
+            np.abs(mu_new - mu).sum()
+            + np.abs(eta_new - eta).sum()
+            + np.abs(nu_new - nu).sum()
+            + np.linalg.norm(
+                Theta_new - Theta
+            )
+        )
+
+        # Update current parameters.
+        mu = mu_new
+        gamma = gamma_new
+        nu = nu_new
+        eta = eta_new
+        Theta = Theta_new
+
+        hist["mu"].append(mu.copy())
+        hist["eta"].append(eta.copy())
+        hist["nu"].append(nu.copy())
+        hist["theta_diag"].append(
+            np.diag(Theta).copy()
+        )
+
+        if verbose and it % 5 == 0:
+            print(
+                f"iter {it:3d} | "
+                f"param-change {diff:.10f} | "
+                f"proposal-sd "
+                f"{np.round(step, 3)}"
+            )
+
+        if (
+            (
+                run_until_convergence
+                and diff < err
+            )
+            or (
+                not run_until_convergence
+                and it >= n_iter
+            )
+        ):
+            if verbose:
+                print(
+                    f"Converged at iteration {it}."
+                )
+
+            break
+
+        it += 1
+
+    return {
+        "mu": mu,
+        "eta": eta,
+        "nu": nu,
+        "Theta": Theta,
+        "history": hist,
+    }

@@ -1,7 +1,7 @@
 import numpy as np
-from scipy.special import kve, digamma
+from scipy.special import kve, digamma, logsumexp
 from scipy.optimize import brentq
-from scipy.stats import skew
+from scipy.stats import skew, geninvgauss
 from sklearn.covariance import graphical_lasso
 
 def gig_moment(r, lam, chi, psi):
@@ -413,7 +413,7 @@ def _sample_log_tau(
 
     return draws, U, step
 
-def run_em_MCMC(
+def run_em_MWG(
     Y,
     n_iter=60,
     rho=0.05,
@@ -723,4 +723,198 @@ def run_em_MCMC(
         "nu": nu,
         "Theta": Theta,
         "history": hist,
+    }
+
+def run_em_importance(
+    Y,
+    n_iter=60,
+    rho=0.05,
+    verbose=True,
+    err=1e-3,
+    run_until_convergence=False,
+    importance_samples=200,
+    ess_warn_ratio=0.10,
+    random_state=42,
+):
+    """Monte Carlo EM using a product-GIG importance proposal."""
+    n, p = Y.shape
+    rng = np.random.default_rng(random_state)
+
+    mu = Y.mean(axis=0)
+    nu = np.full(p, 0.5)
+    scale = np.maximum(Y.std(axis=0, ddof=1), 1e-8)
+    gamma = 0.1 * scale * np.tanh(skew(Y, axis=0, bias=False))
+    eta = gamma / nu
+    Theta = np.diag(1.0 / Y.var(axis=0))
+
+    hist = {
+        "mu": [],
+        "eta": [],
+        "nu": [],
+        "theta_diag": [],
+        "ess_median": [],
+        "ess_q05": [],
+    }
+
+    it = 0
+    while True:
+        theta_diag = np.diag(Theta)
+
+        # NEW: Product-GIG proposal obtained by dropping Theta's off-diagonal terms.
+        lam = -2.0 / nu - 0.5
+        chi = (
+            4.0 / nu[None, :]
+            + theta_diag[None, :] * (Y - mu[None, :]) ** 2
+        )
+        psi = np.clip(theta_diag * gamma**2, 1e-12, None)
+        gig_b = np.sqrt(chi * psi[None, :])
+        gig_scale = np.sqrt(chi / psi[None, :])
+
+        tau = geninvgauss.rvs(
+            lam[None, None, :],
+            gig_b[None, :, :],
+            scale=gig_scale[None, :, :],
+            size=(importance_samples, n, p),
+            random_state=rng,
+        )
+
+        log_tau = np.log(tau)
+        A = np.exp(-0.5 * log_tau)  # tau^(-1/2)
+        B = np.exp(0.5 * log_tau)   # tau^(1/2)
+
+        # NEW: The weights correct the product-GIG proposal for posterior dependence.
+        Theta_off = Theta.copy()
+        np.fill_diagonal(Theta_off, 0.0)
+        Z = A * (Y - mu)[None, :, :] - B * gamma[None, None, :]
+        log_weights = -0.5 * np.einsum(
+            "sij,jk,sik->si", Z, Theta_off, Z, optimize=True
+        )
+        log_weights -= logsumexp(log_weights, axis=0, keepdims=True)
+        weights = np.exp(log_weights)
+
+        # ESS is calculated separately for each observation.
+        ess = 1.0 / np.sum(weights**2, axis=0)
+        ess_ratio = ess / importance_samples
+        ess_median = float(np.median(ess))
+        ess_q05 = float(np.quantile(ess, 0.05))
+
+        # NEW: Weighted joint posterior moments for the unchanged M-step.
+        def weighted_cross(X, W):
+            return np.einsum(
+                "si,sij,sik->jk", weights, X, W, optimize=True
+            )
+
+        H = np.block([
+            [Theta * weighted_cross(A, A), Theta * weighted_cross(A, B)],
+            [Theta * weighted_cross(B, A), Theta * weighted_cross(B, B)],
+        ])
+
+        AY = A * Y[None, :, :]
+        Theta_AY = np.einsum("sik,jk->sij", AY, Theta, optimize=True)
+        b_mu = np.einsum("si,sij,sij->j", weights, A, Theta_AY, optimize=True)
+        b_gamma = np.einsum(
+            "si,sij,sij->j", weights, B, Theta_AY, optimize=True
+        )
+
+        mu_gamma_new = np.linalg.solve(H, np.concatenate([b_mu, b_gamma]))
+        mu_new = mu_gamma_new[:p]
+        gamma_new = mu_gamma_new[p:]
+
+        # Unchanged nu and eta M-step.
+        M_neg1 = np.einsum("si,sij->ij", weights, A**2, optimize=True)
+        L_log = np.einsum("si,sij->ij", weights, log_tau, optimize=True)
+        S_j = (L_log + M_neg1).sum(axis=0)
+
+        def stationarity(nu_j, S):
+            a = 2.0 / nu_j
+            return n * (np.log(a) + 1.0 - digamma(a)) - S
+
+        nu_new = np.empty(p)
+        for j in range(p):
+            try:
+                nu_new[j] = brentq(
+                    lambda x: stationarity(x, S_j[j]),
+                    0.01,
+                    5.0,
+                    xtol=1e-6,
+                )
+            except ValueError:
+                raise ValueError(
+                    f"Root finding failed for nu[{j}] with S_j={S_j[j]}"
+                )
+
+        eta_new = gamma_new / nu_new
+
+        # Unchanged expected-covariance and graphical-lasso M-step.
+        Z_new = (
+            A * (Y - mu_new)[None, :, :]
+            - B * gamma_new[None, None, :]
+        )
+        S_tau = np.einsum(
+            "si,sij,sik->jk", weights, Z_new, Z_new, optimize=True
+        ) / n
+        S_tau = (S_tau + S_tau.T) / 2.0 + 1e-10 * np.eye(p)
+
+        try:
+            _, Theta_new = graphical_lasso(S_tau, alpha=rho, max_iter=1000)
+        except Exception as e:
+            if verbose:
+                print(
+                    f"  [warn] glasso failed at iter {it}: {e}; "
+                    "keeping previous Theta"
+                )
+            Theta_new = Theta
+
+        diff = (
+            np.abs(mu_new - mu).sum()
+            + np.abs(eta_new - eta).sum()
+            + np.abs(nu_new - nu).sum()
+            + np.linalg.norm(Theta_new - Theta)
+        )
+
+        mu, gamma, nu, eta, Theta = (
+            mu_new,
+            gamma_new,
+            nu_new,
+            eta_new,
+            Theta_new,
+        )
+
+        hist["mu"].append(mu.copy())
+        hist["eta"].append(eta.copy())
+        hist["nu"].append(nu.copy())
+        hist["theta_diag"].append(np.diag(Theta).copy())
+        hist["ess_median"].append(ess_median)
+        hist["ess_q05"].append(ess_q05)
+
+        if verbose and it % 5 == 0:
+            print(
+                f"iter {it:3d} | param-change {diff:.10f} | "
+                f"ESS median {ess_median:.1f}/{importance_samples} | "
+                f"ESS 5% {ess_q05:.1f}/{importance_samples}"
+            )
+
+        if verbose and np.quantile(ess_ratio, 0.05) < ess_warn_ratio:
+            print(
+                f"  [warn] low importance-sampling ESS at iter {it}; "
+                "increase importance_samples or use a dependent proposal"
+            )
+
+        if (
+            (run_until_convergence and diff < err)
+            or (not run_until_convergence and it >= n_iter)
+        ):
+            if verbose:
+                print(f"Converged at iteration {it}.")
+            break
+
+        it += 1
+
+    return {
+        "mu": mu,
+        "eta": eta,
+        "nu": nu,
+        "Theta": Theta,
+        "history": hist,
+        "last_ess": ess,
     }

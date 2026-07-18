@@ -98,6 +98,10 @@ class VAEConfig:
     weight_decay: float = 0.0
     gradient_clip: float = 10.0
 
+    # ADDED: discard this fraction of early epochs before averaging parameters.
+    # A value of 0.5 averages the final half of the training trajectory.
+    parameter_average_burn_in: float = 0.5
+
     # DESIGN CHOICE: set theta_l1 > 0 to estimate a sparse precision matrix.
     # The penalty is applied to off-diagonal entries only.
     theta_l1: float = 0.0
@@ -345,6 +349,21 @@ class ExactAATDecoder(nn.Module):
         raw_theta_cholesky[diagonal_mask] = inverse_softplus(adjusted_diagonal)
         self.raw_theta_cholesky = nn.Parameter(raw_theta_cholesky)
 
+        # ADDED: persistent buffers store post-burn-in parameter averages so the
+        # averages move with the model across devices and survive state_dict saves.
+        self.register_buffer("average_mu", torch.full_like(initial_mu, torch.nan))
+        self.register_buffer("average_gamma", torch.full_like(initial_mu, torch.nan))
+        self.register_buffer("average_eta", torch.full_like(initial_mu, torch.nan))
+        self.register_buffer("average_nu", torch.full_like(initial_mu, torch.nan))
+        self.register_buffer(
+            "average_theta",
+            torch.full_like(initial_theta, torch.nan),
+        )
+        self.register_buffer(
+            "parameter_average_count",
+            torch.zeros((), dtype=torch.long, device=initial_mu.device),
+        )
+
     @property
     def nu(self) -> Tensor:
         return self.config.nu_min + (
@@ -433,14 +452,61 @@ class ExactAATDecoder(nn.Module):
         return self.config.theta_l1 * off_diagonal.abs().sum()
 
     @torch.no_grad()
-    def estimates(self) -> Dict[str, np.ndarray]:
+    def tensor_estimates(self) -> Dict[str, Tensor]:
+        """ADDED: return detached parameter tensors for trajectory averaging."""
+
         return {
+            "mu": self.mu.detach().clone(),
+            "gamma": self.gamma.detach().clone(),
+            "eta": self.eta.detach().clone(),
+            "nu": self.nu.detach().clone(),
+            "Theta": self.theta.detach().clone(),
+        }
+
+    @torch.no_grad()
+    def set_parameter_averages(
+        self,
+        averages: Dict[str, Tensor],
+        count: int,
+    ) -> None:
+        """ADDED: save completed post-burn-in trajectory averages."""
+
+        self.average_mu.copy_(averages["mu"])
+        self.average_gamma.copy_(averages["gamma"])
+        self.average_eta.copy_(averages["eta"])
+        self.average_nu.copy_(averages["nu"])
+        self.average_theta.copy_(averages["Theta"])
+        self.parameter_average_count.fill_(count)
+
+    @torch.no_grad()
+    def estimates(self) -> Dict[str, np.ndarray | int]:
+        """Return final estimates plus post-burn-in trajectory averages."""
+
+        # UNCHANGED KEYS: these remain the final parameter values, preserving all
+        # existing code that accesses result["mu"], result["eta"], and so on.
+        result: Dict[str, np.ndarray | int] = {
             "mu": self.mu.detach().cpu().numpy().copy(),
             "gamma": self.gamma.detach().cpu().numpy().copy(),
             "eta": self.eta.detach().cpu().numpy().copy(),
             "nu": self.nu.detach().cpu().numpy().copy(),
             "Theta": self.theta.detach().cpu().numpy().copy(),
         }
+
+        # ADDED KEYS: these are available after fit_aat_vae completes.
+        if int(self.parameter_average_count.item()) > 0:
+            result.update(
+                {
+                    "mu_average": self.average_mu.detach().cpu().numpy().copy(),
+                    "gamma_average": self.average_gamma.detach().cpu().numpy().copy(),
+                    "eta_average": self.average_eta.detach().cpu().numpy().copy(),
+                    "nu_average": self.average_nu.detach().cpu().numpy().copy(),
+                    "Theta_average": self.average_theta.detach().cpu().numpy().copy(),
+                    "parameter_average_count": int(
+                        self.parameter_average_count.item()
+                    ),
+                }
+            )
+        return result
 
 
 class AATVAE(nn.Module):
@@ -530,6 +596,10 @@ def fit_aat_vae(
     config = config or VAEConfig()
     set_seed(config.seed)
 
+    # ADDED: validate the fraction of training discarded before averaging.
+    if not 0.0 <= config.parameter_average_burn_in < 1.0:
+        raise ValueError("parameter_average_burn_in must lie in [0, 1)")
+
     if isinstance(y, np.ndarray):
         y_tensor = torch.as_tensor(y, dtype=torch.get_default_dtype())
     else:
@@ -557,6 +627,15 @@ def fit_aat_vae(
     )
 
     history: List[Dict[str, float]] = []
+
+    # ADDED: average actual transformed parameters, rather than raw Cholesky or
+    # sigmoid variables, beginning immediately after the configured burn-in.
+    average_start_epoch = (
+        int(config.epochs * config.parameter_average_burn_in) + 1
+    )
+    parameter_sums: Optional[Dict[str, Tensor]] = None
+    parameter_average_count = 0
+
     model.train()
     for epoch in range(1, config.epochs + 1):
         for (batch_y,) in loader:
@@ -608,6 +687,20 @@ def fit_aat_vae(
         set_requires_grad(model.encoder, True)
         set_requires_grad(model.decoder, True)
 
+        # ADDED: record one equally weighted parameter snapshot per completed
+        # post-burn-in epoch. Averaging Theta directly preserves positive definiteness.
+        if epoch >= average_start_epoch:
+            current_parameters = model.decoder.tensor_estimates()
+            if parameter_sums is None:
+                parameter_sums = {
+                    name: value.clone()
+                    for name, value in current_parameters.items()
+                }
+            else:
+                for name, value in current_parameters.items():
+                    parameter_sums[name].add_(value)
+            parameter_average_count += 1
+
         should_report = (
             epoch == 1
             or epoch % config.print_every == 0
@@ -626,6 +719,19 @@ def fit_aat_vae(
             }
             history.append(record)
             print(f"epoch={epoch:5d}  mean_ELBO={mean_elbo: .6f}")
+
+    # ADDED: finalize and attach the averages without changing the original
+    # two-object return signature: model, history = fit_aat_vae(...).
+    if parameter_sums is None or parameter_average_count == 0:
+        raise RuntimeError("No epochs were available for parameter averaging")
+    parameter_averages = {
+        name: total / parameter_average_count
+        for name, total in parameter_sums.items()
+    }
+    model.decoder.set_parameter_averages(
+        parameter_averages,
+        parameter_average_count,
+    )
 
     model.eval()
     return model, history
@@ -659,78 +765,3 @@ def simulate_aat_data(
     ).sample((n,))
     y = mu_t + eta_t * nu_t * tau + torch.sqrt(tau) * x
     return y.cpu().numpy(), tau.cpu().numpy()
-
-
-def print_parameter_comparison(
-    estimates: Dict[str, np.ndarray],
-    mu_true: np.ndarray,
-    eta_true: np.ndarray,
-    nu_true: np.ndarray,
-    theta_true: np.ndarray,
-) -> None:
-    """Print true and estimated parameters without rounding the calculations."""
-
-    gamma_true = eta_true * nu_true
-    print("\nParameter comparison")
-    print(f"{'parameter':>12}  {'true':>36}  {'estimated':>36}")
-    print(f"{'mu':>12}  {str(mu_true):>36}  {str(estimates['mu']):>36}")
-    print(f"{'gamma':>12}  {str(gamma_true):>36}  {str(estimates['gamma']):>36}")
-    print(f"{'eta':>12}  {str(eta_true):>36}  {str(estimates['eta']):>36}")
-    print(f"{'nu':>12}  {str(nu_true):>36}  {str(estimates['nu']):>36}")
-    print("\nTrue Theta:\n", theta_true)
-    print("\nEstimated Theta:\n", estimates["Theta"])
-
-
-def demonstration(arguments: argparse.Namespace) -> None:
-    """Run a complete simulation-and-fit example."""
-
-    mu_true = np.array([-0.5, 0.25, 1.0])
-    eta_true = np.array([0.8, -0.6, 0.5])
-    nu_true = np.array([0.45, 0.60, 0.35])
-    theta_true = np.array(
-        [
-            [1.30, -0.25, 0.15],
-            [-0.25, 1.10, -0.20],
-            [0.15, -0.20, 0.95],
-        ]
-    )
-
-    y, _ = simulate_aat_data(
-        n=arguments.n,
-        mu=mu_true,
-        eta=eta_true,
-        nu=nu_true,
-        theta=theta_true,
-        seed=arguments.seed,
-    )
-    config = VAEConfig(
-        epochs=arguments.epochs,
-        flow_layers=arguments.flow_layers,
-        batch_size=arguments.batch_size,
-        seed=arguments.seed,
-        print_every=arguments.print_every,
-    )
-    model, _ = fit_aat_vae(y, config=config, device=arguments.device)
-    print_parameter_comparison(
-        model.decoder.estimates(),
-        mu_true=mu_true,
-        eta_true=eta_true,
-        nu_true=nu_true,
-        theta_true=theta_true,
-    )
-
-
-def parse_arguments() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--n", type=int, default=2_000)
-    parser.add_argument("--epochs", type=int, default=500)
-    parser.add_argument("--flow-layers", type=int, default=4)
-    parser.add_argument("--batch-size", type=int, default=128)
-    parser.add_argument("--print-every", type=int, default=25)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--device", type=str, default=None)
-    return parser.parse_args()
-
-
-if __name__ == "__main__":
-    demonstration(parse_arguments())

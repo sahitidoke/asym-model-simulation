@@ -37,8 +37,8 @@ True distribution parameters
 """
 p = 5
 n = 5000
-mu_true  = np.array([1.0, -2.0, 0.5, 0.3, 3.0])
-eta_true = np.array([1.5, -1.0, 0.3, 2.0, -1.5])    
+mu_true  = rng.uniform(low=-1, high=1, size=p) 
+eta_true = rng.uniform(low=-1, high=1, size=p)   
 # nu_true  = np.array([0.15, 0.25, 0.35, 0.10, 0.30]) 
 nu_true = rng.uniform(low=0.15, high=0.9, size=p)
 Theta_true = np.eye(p) * 2.0
@@ -235,5 +235,5 @@ results = {
     }
 }
 
-with open(f"results/results_{args.method}.json", "a") as f:
+with open(f"results/results_{args.method}.json", "w") as f:
     json.dump(results, f)

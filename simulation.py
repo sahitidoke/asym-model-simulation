@@ -55,6 +55,13 @@ parser = argparse.ArgumentParser(
 )
 
 parser.add_argument(
+    "--filename",
+    type=str,
+    default=None,
+    help="Name for result json file method. Default: None.",
+)
+
+parser.add_argument(
     "--method",
     type=str.upper,
     choices=["VAE", "EM_EXACT", "EM_DIAGONAL", "EM_MWG", "EM_IMPORTANCE"],
@@ -237,5 +244,6 @@ results = {
     }
 }
 
-with open(f"results/results_{args.method}.json", "w") as f:
+filename = f"results/results_{args.method}.json" if args.filename is None else f"results/{args.filename}.json"
+with open(filename, "w") as f:
     json.dump(results, f)

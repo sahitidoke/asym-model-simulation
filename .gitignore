@@ -48,5 +48,4 @@ Thumbs.db
 *.log
 *.tmp
 *.swp
-
-.txt/
+*.pdf

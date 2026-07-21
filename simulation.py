@@ -16,6 +16,7 @@ python simulation.py --method em_importance
 import argparse
 import numpy as np
 import EM_algorithm as em
+import json
 from sklearn.metrics import mean_squared_error
 from aat_vae import VAEConfig, fit_aat_vae
 from eta_nu_profile import profile_eta_nu
@@ -211,27 +212,29 @@ print("Mean squared error for nu:", mse_nu)
 print("Mean squared error for eta:", mse_eta)
 print("Mean squared error for Theta:", err_Theta)
 
-# write results to a text file, if the result file does not exist, create it. Append to the file if it already exists.
-with open(f"results/results_{args.method}.txt", "a") as f:
-    f.write(f"Simulation {NUM_SIMULATIONS}:\n")
-    f.write(f"True mu: {mu_true}\n")
-    f.write(f"Estimated mu: {avg_mu}\n")
-    f.write(f"Mean squared error for mu: {mse_mu}\n")
-    f.write(f"True eta: {eta_true}\n")
-    f.write(f"Estimated eta: {avg_eta}\n")
-    f.write(f"Mean squared error for eta: {mse_eta}\n")
-    f.write(f"True nu: {nu_true}\n")
-    f.write(f"Estimated nu: {avg_nu}\n")
-    f.write(f"Mean squared error for nu: {mse_nu}\n")
-    f.write(f"True gamma: {eta_true * nu_true}\n")
-    f.write(f"Estimated gamma: {avg_eta * avg_nu}\n")
-    f.write(f"True mu + gamma: {mu_true + eta_true * nu_true}\n")
-    f.write(f"Estimated mu + gamma: {avg_mu + avg_eta * avg_nu}\n")
-    f.write(f"True Theta:\n{Theta_true}\n")
-    f.write(f"Estimated Theta:\n{avg_theta}\n")
-    f.write(f"Mean squared error for Theta: {err_Theta}\n")
-    f.write("\n")
+# write results to a json file, if the result file does not exist, create it. Append to the file if it already exists.
+results = {
+    "mu": {
+        "true": mu_true.tolist(),
+        "estimated": avg_mu.tolist(),
+        "mse": mse_mu.tolist()
+    },
+    "eta": {
+        "true": eta_true.tolist(),
+        "estimated": avg_eta.tolist(),
+        "mse": mse_eta.tolist()
+    },
+    "nu": {
+        "true": nu_true.tolist(),
+        "estimated": avg_nu.tolist(),
+        "mse": mse_nu.tolist()
+    },
+    "Theta": {
+        "true": Theta_true.tolist(),
+        "estimated": avg_theta.tolist(),
+        "mse": err_Theta
+    }
+}
 
-
-
-
+with open(f"results/results_{args.method}.json", "a") as f:
+    json.dump(results, f)

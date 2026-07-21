@@ -82,6 +82,7 @@ Run the specified method (VAE or EM) to estimate parameters from the simulated d
 """
 NUM_SIMULATIONS = args.num_simulations
 for sim in range(NUM_SIMULATIONS):
+    print(f"Simulation {sim}")
     Y, tau_true = simulate_aat_data(n, p, mu_true, eta_true, nu_true, Theta_true, rng)
     print(f"Simulated data: Y shape = {Y.shape}")
     mus, etas, nus, thetas = [], [], [], []
@@ -173,6 +174,7 @@ for sim in range(NUM_SIMULATIONS):
     etas.append(result["eta"])
     mus.append(result["mu"])
     thetas.append(result["Theta"])
+    print("\n")
 
 nus = np.array(nus)
 etas = np.array(etas)

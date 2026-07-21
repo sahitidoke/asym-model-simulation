@@ -17,7 +17,6 @@ import argparse
 import numpy as np
 import EM_algorithm as em
 import json
-from sklearn.metrics import mean_squared_error
 from aat_vae import VAEConfig, fit_aat_vae
 from eta_nu_profile import profile_eta_nu
 
@@ -41,7 +40,7 @@ n = 5000
 mu_true  = np.array([1.0, -2.0, 0.5, 0.3, 3.0])
 eta_true = np.array([1.5, -1.0, 0.3, 2.0, -1.5])    
 # nu_true  = np.array([0.15, 0.25, 0.35, 0.10, 0.30]) 
-nu_true = rng.uniform(low=0.05, high=0.9, size=p)
+nu_true = rng.uniform(low=0.15, high=0.9, size=p)
 Theta_true = np.eye(p) * 2.0
 for j in range(p - 1):
     Theta_true[j, j + 1] = Theta_true[j + 1, j] = 0.5
@@ -197,6 +196,7 @@ err_Theta = np.mean(
         axis=(1, 2),
     )
 )
+
 # final values
 print(f"{'mu':>10} {np.round(mu_true, 5)} {np.round(avg_mu, 5)}")
 print(f"{'eta':>10} {np.round(eta_true, 5)} {np.round(avg_eta, 5)}")
@@ -206,7 +206,6 @@ print(f"{'mu + gamma:':>10} {np.round(mu_true + eta_true * nu_true, 5)} {np.roun
 print("\nTrue Theta:\n", np.round(Theta_true, 5))
 print("\nEstimated Theta:\n", np.round(avg_theta, 5))
 print("\n")
-
 print("Mean squared error for mu:", mse_mu)
 print("Mean squared error for nu:", mse_nu)
 print("Mean squared error for eta:", mse_eta)

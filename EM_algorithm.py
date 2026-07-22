@@ -753,8 +753,8 @@ def run_em_MWGP(
     ):
         """
         Draw samples from p(log(tau) | Y, mu, gamma, nu, Theta)
-        using Metropolis-within-Gibbs with the diagonal-case GIG
-        distribution as an independence proposal.  # CHANGED
+        using Metropolis-within-Gibbs with a Laplace-normal
+        independence proposal.  # CHANGED
         """
         n, p = Y.shape
 
@@ -773,57 +773,70 @@ def run_em_MWGP(
         accepted_count = np.zeros(p, dtype=float)
         proposed_count = np.zeros(p, dtype=float)
 
+        # Parameters of the diagonal log-GIG conditional.
         lam = -a - 0.5
-        chi = 2.0 * beta[None, :] + residual**2 * np.diag(Theta)[None, :]
+        chi = (
+            2.0 * beta[None, :]
+            + residual**2 * np.diag(Theta)[None, :]
+        )
         psi = np.diag(Theta) * gamma**2
+
+        # ADDED: mode of the diagonal conditional in tau-space.
+        sqrt_term = np.sqrt(
+            lam[None, :] ** 2
+            + chi * psi[None, :]
+        )
+
+        # ADDED: numerically stable mode formula.
+        # This also remains valid when psi == 0.
+        tau_mode = chi / (
+            sqrt_term - lam[None, :]
+        )
+
+        # ADDED: proposal mean in log(tau)-space.
+        proposal_mean = np.log(tau_mode)
+
+        # ADDED: Laplace variance from the negative inverse curvature.
+        proposal_var = 2.0 / (
+            chi / tau_mode
+            + psi[None, :] * tau_mode
+        )
+
+        # ADDED: proposal standard deviation.
+        proposal_sd = np.sqrt(proposal_var)
 
         saved = 0
         total_sweeps = burn + samples * thin
 
         for sweep in tqdm(range(total_sweeps)):
             for j in range(p):
-                # Draw an independence proposal from the
-                # diagonal-case conditional GIG distribution.
-                lam_j = lam[j]
-                chi_j = chi[:, j]
-                psi_j = psi[j]
+                # CHANGED: current log(tau) state.
+                old = U[:, j].copy()
 
-                # Calling GIG sampler 
-                if psi_j == 0.0:
-                    # The psi = 0 limiting case is inverse-gamma.
-                    tau_proposed = 1.0 / rng.gamma(
-                        shape=-lam_j,
-                        scale=2.0 / chi_j,
-                    )
-                else:
-                    scipy_b = np.sqrt(chi_j * psi_j)
-                    scipy_scale = np.sqrt(chi_j / psi_j)
+                # CHANGED: observation-specific Laplace proposal parameters.
+                mean_j = proposal_mean[:, j]
+                sd_j = proposal_sd[:, j]
 
-                    tau_proposed = geninvgauss.rvs(
-                        p=lam_j,
-                        b=scipy_b,
-                        scale=scipy_scale,
-                        random_state=rng,
-                    )
-
-                valid = (
-                    np.isfinite(tau_proposed)
-                    & (tau_proposed > 0.0)
+                # CHANGED: fast vectorized normal independence proposal.
+                new = rng.normal(
+                    loc=mean_j,
+                    scale=sd_j,
                 )
 
-                new = np.full(n, np.nan)
-                new[valid] = np.log(tau_proposed[valid])
+                # CHANGED: prevent overflow in exponential calculations.
+                valid = (
+                    np.isfinite(new)
+                    & (np.abs(new) < 30.0)
+                )
 
                 new_z = np.zeros(n)
-                sqrt_tau_proposed = np.zeros(n)
-                sqrt_tau_proposed[valid] = np.sqrt(
-                    tau_proposed[valid]
-                )
 
+                # CHANGED: compute z directly from proposed log(tau).
                 new_z[valid] = (
-                    residual[valid, j]
-                    / sqrt_tau_proposed[valid]
-                    - gamma[j] * sqrt_tau_proposed[valid]
+                    np.exp(-new[valid] / 2.0)
+                    * residual[valid, j]
+                    - np.exp(new[valid] / 2.0)
+                    * gamma[j]
                 )
 
                 delta_z = np.zeros(n)
@@ -831,17 +844,55 @@ def run_em_MWGP(
                     new_z[valid] - Z[valid, j]
                 )
 
-                # The GIG factors cancel, so only the
-                # off-diagonal precision-matrix interaction remains.
-                off_diagonal_contribution = (
-                    Z @ Theta[:, j]
-                    - Theta[j, j] * Z[:, j]
+                # CHANGED: full change in z^T Theta z.
+                # The diagonal terms no longer cancel because the
+                # normal proposal is only an approximation.
+                delta_quadratic = (
+                    2.0
+                    * delta_z
+                    * (Z @ Theta[:, j])
+                    + Theta[j, j] * delta_z**2
                 )
 
                 log_acceptance = np.full(n, -np.inf)
+
+                # ADDED: evaluate only valid proposals to avoid overflow.
+                old_valid = old[valid]
+                new_valid = new[valid]
+                mean_valid = mean_j[valid]
+                sd_valid = sd_j[valid]
+
+                # CHANGED: complete target-density difference in log(tau).
+                log_target_change = (
+                    -(a[j] + 0.5)
+                    * (new_valid - old_valid)
+                    - beta[j]
+                    * (
+                        np.exp(-new_valid)
+                        - np.exp(-old_valid)
+                    )
+                    - 0.5 * delta_quadratic[valid]
+                )
+
+                # ADDED: independence-proposal correction
+                # log q(old) - log q(new).
+                log_proposal_correction = (
+                    -0.5
+                    * (
+                        (old_valid - mean_valid)
+                        / sd_valid
+                    ) ** 2
+                    + 0.5
+                    * (
+                        (new_valid - mean_valid)
+                        / sd_valid
+                    ) ** 2
+                )
+
+                # CHANGED: exact independent Metropolis-Hastings ratio.
                 log_acceptance[valid] = (
-                    -off_diagonal_contribution[valid]
-                    * delta_z[valid]
+                    log_target_change
+                    + log_proposal_correction
                 )
 
                 accept = (
@@ -870,7 +921,6 @@ def run_em_MWGP(
         )
 
         return draws, U, acceptance_rate
-
     n, p = Y.shape
 
     # Initialize parameters.

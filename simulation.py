@@ -7,10 +7,8 @@ python simulation.py --method vae
 python simulation.py --method vae --diagnostics
 
 # EM
-python simulation.py --method em_diagonal
-python simulation.py --method em_exact
-python simulation.py --method em_mwg
-python simulation.py --method em_importance
+Example:
+python simulation.py --method em_diagonal --num_simulations 10 --filename large_mu
 """
 
 import argparse
@@ -64,7 +62,7 @@ parser.add_argument(
 parser.add_argument(
     "--method",
     type=str.upper,
-    choices=["VAE", "EM_EXACT", "EM_DIAGONAL", "EM_MWG", "EM_IMPORTANCE"],
+    choices=["VAE", "EM_EXACT", "EM_DIAGONAL", "EM_MWG", "EM_MWGP", "EM_IMPORTANCE"],
     default="VAE",
     help="Parameter estimation method. Default: VAE.",
 )
@@ -89,7 +87,7 @@ Run the specified method (VAE or EM) to estimate parameters from the simulated d
 """
 NUM_SIMULATIONS = args.num_simulations
 for sim in range(NUM_SIMULATIONS):
-    print(f"Simulation {sim}")
+    print(f"Simulation {sim+1}")
     Y, tau_true = simulate_aat_data(n, p, mu_true, eta_true, nu_true, Theta_true, rng)
     print(f"Simulated data: Y shape = {Y.shape}")
     mus, etas, nus, thetas = [], [], [], []
@@ -160,6 +158,20 @@ for sim in range(NUM_SIMULATIONS):
             run_until_convergence=False,
             mcmc_samples=400,
             proposal_scale=0.35,
+            random_state=42,
+        )
+    elif args.method == "EM_MWGP":
+        if args.diagnostics:
+            parser.error("--diagnostics can only be used with --method VAE")
+
+        result = em.run_em_MWGP(
+            Y,
+            n_iter=100,
+            rho=0.0025,
+            verbose=True,
+            err=1e-3,
+            run_until_convergence=False,
+            mcmc_samples=400,
             random_state=42,
         )
     elif args.method == "EM_IMPORTANCE":
@@ -244,6 +256,6 @@ results = {
     }
 }
 
-filename = f"results/results_{args.method}.json" if args.filename is None else f"results/{args.filename}.json"
+filename = f"results/results_{args.method}.json" if args.filename is None else f"results/results_{args.method}_{args.filename}.json"
 with open(filename, "w") as f:
     json.dump(results, f)

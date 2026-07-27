@@ -172,7 +172,10 @@ for sim in range(NUM_SIMULATIONS):
             err=1e-3,
             run_until_convergence=False,
             mcmc_samples=400,
+            mcmc_thin=1,
+            mcmc_warmup=30,
             random_state=42,
+            proposal="gig",
         )
     elif args.method == "EM_IMPORTANCE":
         if args.diagnostics:

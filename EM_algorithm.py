@@ -341,7 +341,7 @@ def run_em_MWG(
 
         total_sweeps = burn + samples * thin
 
-        for sweep in tqdm(range(total_sweeps)):
+        for sweep in range(total_sweeps):
             for j in range(p):
                 old = U[:, j].copy()
                 new = old + step[j] * rng.standard_normal(n)
@@ -889,7 +889,7 @@ def run_em_MWGP(
         proposed_count = np.zeros(p)
         saved = 0
 
-        for sweep in tqdm(range(total_sweeps)):
+        for sweep in range(total_sweeps):
             if sweep > 0 and sweep % refresh_every == 0:
                 W = Z @ Theta                     # guard against fp drift
 
@@ -965,7 +965,7 @@ def run_em_MWGP(
         saved = 0
         total_sweeps = burn + samples * thin
 
-        for sweep in tqdm(range(total_sweeps)):
+        for sweep in range(total_sweeps):
             if sweep > 0 and sweep % refresh_every == 0:
                 W = Z @ Theta
 
@@ -1140,6 +1140,7 @@ def run_em_MWGP(
 
     return {
         "mu": mu, "eta": eta, "nu": nu, "Theta": Theta, "history": hist,
+        "S_tau": S_tau,
     }
 
 def run_em_importance(

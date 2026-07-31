@@ -24,7 +24,7 @@ Y = data.load_control()
 results,_ = em.run_em_MWGP(
     Y,
     n_iter=100,
-    rho=0.0025,
+    rho=0.01,
     verbose=True,
     err=1e-3,
     run_until_convergence=False,

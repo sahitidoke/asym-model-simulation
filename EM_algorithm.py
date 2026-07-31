@@ -776,6 +776,37 @@ def _sample_log_gig(lam, chi, psi, size_T, rng, max_rounds=200):
         "(sites with b = sqrt(chi*psi) < b_min take that path)."
     )
 
+def _color_classes(Theta):
+    """Partition the coordinates into independent sets of supp(Theta).
+
+    z_j depends on tau_j alone, so the only coupling between tau_j and tau_k in
+    p(tau | Y, ...) is the cross term theta_jk z_j z_k: the conditional
+    independence graph OF THE LATENT tau IS the support of Theta. Coordinates
+    in one independent set are therefore conditionally independent given the
+    rest and can be refreshed simultaneously, so a sweep over the classes is
+    still an exact Gibbs scan.
+
+    This is a statement about the tau-block sampler only. It says nothing about
+    the conditional independence graph of Y, which is a different target (see
+    CLAUDE.md) and is NOT recoverable from supp(Theta).
+
+    Greedy largest-degree-first coloring. Sparse Theta gives few classes, so a
+    sweep costs a handful of BLAS calls instead of p masked scatter updates; a
+    dense Theta degrades gracefully to p singleton classes, i.e. exactly the
+    coordinate-wise scan.
+    """
+    p = Theta.shape[0]
+    adj = Theta != 0.0
+    np.fill_diagonal(adj, False)
+    color = np.full(p, -1, dtype=int)
+    for j in np.argsort(-adj.sum(axis=1)):        # largest degree first
+        taken = color[adj[j]]
+        free = np.ones(p + 1, dtype=bool)
+        free[taken[taken >= 0]] = False
+        color[j] = int(np.argmax(free))
+    return [np.flatnonzero(color == c) for c in range(color.max() + 1)]
+
+
 def run_em_MWGP(
     Y,
     n_iter=100,
@@ -790,7 +821,8 @@ def run_em_MWGP(
     random_state=42,
     proposal="gig",       # "gig" (recommended) or "laplace"
     b_min=0.05,           # sqrt(chi*psi) threshold for the InvGamma path
-    refresh_every=250,    # periodic refresh of cached W = Z @ Theta
+    refresh_every=250,    # periodic refresh of cached W = Z @ Theta (laplace)
+    proposal_bytes=128e6, # per-array cap on the pre-generated proposal batch
 ):
     # =================================================================
     # E-step sampler: Metropolis-within-Gibbs, GIG independence proposal
@@ -830,101 +862,136 @@ def run_em_MWGP(
         exp(-psi_j (tau^new - tau^old)/2) is added to log alpha, so the
         chain remains exact.
 
-        Speed-ups (same taxonomy as before):
-          (S1) all total_sweeps proposals per site are generated up
-               front in vectorized batches — valid because the
-               independence-proposal parameters are frozen for the
-               whole E-step;
+        Speed-ups:
+          (S1) proposals are pre-generated in vectorized batches — valid
+               because the independence-proposal parameters are frozen
+               for the whole E-step — but in CHUNKS of sweeps, so peak
+               memory is capped by proposal_bytes instead of growing as
+               total_sweeps * n * p * 8 (GBs once p reaches 100);
           (S2) all log-uniforms pre-generated per sweep; nothing about
                the current state needs recomputation except z_j;
-          (S3) the coupling term is read from the cached W = Z @ Theta,
-               rank-1-updated on acceptance.
+          (S3) coordinates are refreshed one COLOR CLASS at a time (see
+               _color_classes). Members of a class are non-adjacent in
+               Theta, so c_j = sum_{m != j} theta_mj z_m is unaffected by
+               the other members and the block move reproduces exactly
+               the sequential updates of its members. The whole class
+               costs one gemm Z @ Theta[:, S] instead of |S| masked
+               rank-1 scatters into a cached W, which is what made the
+               old loop O(sweeps * n * p^2) with fancy-indexing
+               constants. No cached W means no fp drift and no
+               refresh_every.
+          (S4) per-coordinate constants (the InvGamma masks, the sliced
+               Theta columns) are hoisted out of the sweep loop.
         """
         n, p = Y.shape
         a = 2.0 / nu
         beta = a
         residual = Y - mu
+        theta_diag = np.diag(Theta).copy()
 
         U = state.copy()
         Z = np.exp(-U / 2.0) * residual - np.exp(U / 2.0) * gamma
-        tau_cur = np.exp(U)
 
         lam = -a - 0.5
-        chi = 2.0 * beta[None, :] + residual**2 * np.diag(Theta)[None, :]
-        psi = np.diag(Theta) * gamma**2
+        chi = 2.0 * beta[None, :] + residual**2 * theta_diag[None, :]
+        psi = theta_diag * gamma**2
         b = np.sqrt(chi * psi[None, :])          # (n, p)
         use_ig = b < b_min                        # InvGamma-path mask
+        tau_cur = np.exp(U) if use_ig.any() else None
+
+        # ---------- (S3)/(S4) per-class constants --------------------
+        classes = [
+            (
+                S,
+                np.ascontiguousarray(Theta[:, S]),   # (p, |S|)
+                theta_diag[S][None, :],
+                psi[S][None, :],
+                use_ig[:, S] if use_ig[:, S].any() else None,
+            )
+            for S in _color_classes(Theta)
+        ]
 
         total_sweeps = burn + samples * thin
 
-        # ---------- (S1) pre-generate ALL proposals, per coordinate --
-        # Memory: total_sweeps * n * p float64. For (550, 500, 50) this
-        # is ~110 MB; reduce mcmc_* or chunk sweeps if that's too much.
-        prop_U = np.empty((total_sweeps, n, p))
-        for j in range(p):
-            ig = use_ig[:, j]
-            n_ig = int(ig.sum())
-            if n_ig < n:                          # exact-GIG sites
-                cols = ~ig
-                prop_U[:, cols, j] = _sample_log_gig(
-                    lam[j], chi[cols, j],
-                    np.full(n - n_ig, psi[j]),
-                    total_sweeps, rng,
-                )
-            if n_ig > 0:                          # InvGamma sites
-                g = rng.gamma(-lam[j], size=(total_sweeps, n_ig))
-                prop_U[:, ig, j] = np.log(chi[ig, j][None, :] / 2.0) - np.log(g)
-
-        # proposal-only z values, precomputed for the whole run
-        prop_Z = (
-            np.exp(-prop_U / 2.0) * residual[None, :, :]
-            - np.exp(prop_U / 2.0) * gamma[None, None, :]
-        )
-
-        # ---------- (S3) cached coupling matrix ----------------------
-        W = Z @ Theta
+        # ---------- (S1) chunked proposal batches --------------------
+        # Three arrays of (chunk, n, p) stay live, so peak is ~3x
+        # proposal_bytes.
+        chunk = max(1, min(total_sweeps, int(proposal_bytes // (n * p * 8))))
+        prop_U = np.empty((chunk, n, p))
+        prop_Z = np.empty((chunk, n, p))
+        scratch = np.empty((chunk, n, p))
 
         draws = np.empty((samples, n, p))
         accepted_count = np.zeros(p)
         proposed_count = np.zeros(p)
         saved = 0
+        sweep = 0
 
-        for sweep in range(total_sweeps):
-            if sweep > 0 and sweep % refresh_every == 0:
-                W = Z @ Theta                     # guard against fp drift
-
-            LogUnif = np.log(rng.random((n, p)))  # (S2)
+        while sweep < total_sweeps:
+            cs = min(chunk, total_sweeps - sweep)
+            pU, pZ, tmp = prop_U[:cs], prop_Z[:cs], scratch[:cs]
 
             for j in range(p):
-                new = prop_U[sweep, :, j]
-                new_z = prop_Z[sweep, :, j]
-                delta_z = new_z - Z[:, j]
-
-                # collapsed independence-MH ratio: just the tilt
-                c = W[:, j] - Theta[j, j] * Z[:, j]
-                log_alpha = -c * delta_z
-
-                if use_ig[:, j].any():
-                    ig = use_ig[:, j]
-                    log_alpha[ig] += -0.5 * psi[j] * (
-                        np.exp(new[ig]) - tau_cur[ig, j]
+                ig = use_ig[:, j]
+                n_ig = int(ig.sum())
+                if n_ig < n:                          # exact-GIG sites
+                    cols = ~ig
+                    pU[:, cols, j] = _sample_log_gig(
+                        lam[j], chi[cols, j],
+                        np.full(n - n_ig, psi[j]), cs, rng,
                     )
+                if n_ig > 0:                          # InvGamma sites
+                    g = rng.gamma(-lam[j], size=(cs, n_ig))
+                    pU[:, ig, j] = np.log(chi[ig, j][None, :] / 2.0) - np.log(g)
 
-                accept = LogUnif[:, j] < np.minimum(0.0, log_alpha)
+            # proposal-only z values, in place to avoid (chunk, n, p) temporaries
+            np.multiply(pU, -0.5, out=pZ)
+            np.exp(pZ, out=pZ)
+            pZ *= residual[None, :, :]
+            np.multiply(pU, 0.5, out=tmp)
+            np.exp(tmp, out=tmp)
+            tmp *= gamma[None, None, :]
+            pZ -= tmp
 
-                if accept.any():
-                    W[accept] += delta_z[accept, None] * Theta[j][None, :]
-                    U[accept, j] = new[accept]
-                    Z[accept, j] = new_z[accept]
-                    tau_cur[accept, j] = np.exp(new[accept])
+            for s in range(cs):
+                LogUnif = np.log(rng.random((n, p)))  # (S2)
+                sweep_U, sweep_Z = pU[s], pZ[s]
 
-                if sweep >= burn:
-                    accepted_count[j] += accept.sum()
-                    proposed_count[j] += n
+                for S, Theta_S, tdiag_S, psi_S, ig_S in classes:
+                    new = sweep_U[:, S]
+                    new_z = sweep_Z[:, S]
+                    delta_z = new_z - Z[:, S]
 
-            if sweep >= burn and (sweep - burn) % thin == 0:
-                draws[saved] = U
-                saved += 1
+                    # collapsed independence-MH ratio: just the tilt
+                    c = Z @ Theta_S - tdiag_S * Z[:, S]
+                    log_alpha = -c * delta_z
+
+                    new_tau = None
+                    if ig_S is not None:
+                        new_tau = np.exp(new)     # reused for tau_cur below
+                        log_alpha += np.where(
+                            ig_S,
+                            -0.5 * psi_S * (new_tau - tau_cur[:, S]),
+                            0.0,
+                        )
+
+                    accept = LogUnif[:, S] < np.minimum(0.0, log_alpha)
+
+                    U[:, S] = np.where(accept, new, U[:, S])
+                    Z[:, S] = np.where(accept, new_z, Z[:, S])
+                    if new_tau is not None:
+                        tau_cur[:, S] = np.where(
+                            accept, new_tau, tau_cur[:, S]
+                        )
+
+                    if sweep >= burn:
+                        accepted_count[S] += accept.sum(axis=0)
+                        proposed_count[S] += n
+
+                if sweep >= burn and (sweep - burn) % thin == 0:
+                    draws[saved] = U
+                    saved += 1
+                sweep += 1
 
         acceptance_rate = accepted_count / np.maximum(proposed_count, 1.0)
         return draws, U, acceptance_rate

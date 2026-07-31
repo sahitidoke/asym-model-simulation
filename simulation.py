@@ -101,22 +101,25 @@ if __name__ == "__main__":
     from eta_nu_profile import profile_eta_nu
 
     """
-    True distribution parameters
-    """
-    p = 5
-    n = 5000
-    mu_true  = rng.uniform(low=-1, high=1, size=p)
-    eta_true = rng.uniform(low=-1, high=1, size=p)
-    # nu_true  = np.array([0.15, 0.25, 0.35, 0.10, 0.30])
-    nu_true = rng.uniform(low=0.15, high=0.9, size=p)
-    Theta_true = make_true_theta(p, sparsity=0.7, rng=rng)
-
-    """
     Command-line argument parsing
     """
 
     parser = argparse.ArgumentParser(
         description="Run the asymmetric t-distribution simulation."
+    )
+    
+    parser.add_argument(
+        "--p",
+        type=int,
+        default=5,
+        help="Dimension of observations. Default: 5.",
+    )
+    
+    parser.add_argument(
+        "--n",
+        type=int,
+        default=2000,
+        help="Number of observations. Default: 2000.",
     )
 
     parser.add_argument(
@@ -149,13 +152,23 @@ if __name__ == "__main__":
 
 
     args = parser.parse_args()
+    
+    """
+    True distribution parameters
+    """
+    mu_true  = rng.uniform(low=-1, high=1, size=args.p)
+    eta_true = rng.uniform(low=-1, high=1, size=args.p)
+    # nu_true  = np.array([0.15, 0.25, 0.35, 0.10, 0.30])
+    nu_true = rng.uniform(low=0.15, high=0.9, size=args.p)
+    Theta_true = make_true_theta(args.p, sparsity=0.7, rng=rng)
+    
     """
     Run the specified method (VAE or EM) to estimate parameters from the simulated data.
     """
     NUM_SIMULATIONS = args.num_simulations
     for sim in range(NUM_SIMULATIONS):
         print(f"Simulation {sim+1}")
-        Y, tau_true = simulate_aat_data(n, p, mu_true, eta_true, nu_true, Theta_true, rng)
+        Y, tau_true = simulate_aat_data(args.n, args.p, mu_true, eta_true, nu_true, Theta_true, rng)
         print(f"Simulated data: Y shape = {Y.shape}")
         mus, etas, nus, thetas = [], [], [], []
         if args.method == "VAE":
@@ -223,7 +236,7 @@ if __name__ == "__main__":
                 verbose=True,
                 err=1e-3,
                 run_until_convergence=False,
-                mcmc_samples=400,
+                mcmc_samples=100,
                 proposal_scale=0.35,
                 random_state=42,
             )
@@ -238,7 +251,7 @@ if __name__ == "__main__":
                 verbose=True,
                 err=1e-3,
                 run_until_convergence=False,
-                mcmc_samples=400,
+                mcmc_samples=100,
                 mcmc_thin=1,
                 mcmc_warmup=30,
                 random_state=42,

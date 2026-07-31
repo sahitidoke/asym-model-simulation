@@ -30,11 +30,17 @@ COLOR_GGM = "#e34948"
 COLOR_CHANCE = "#c3c2b7"
 
 
-def fit_S_tau(Y, reference_rho, mcmc_random_state=42):
+def fit_S_tau(Y, reference_rho, mcmc_random_state=42, b_min=0.5):
     """Fit EM_MWGP and return the expected sufficient statistic S_tau from its
     final MCMC E-step. S_tau is the (mu, eta, nu)-fixed covariance surrogate
     that the glasso step consumes, so sweeping rho amounts to re-solving glasso
-    on this single S_tau -- no need to rerun the expensive MCMC per rho."""
+    on this single S_tau -- no need to rerun the expensive MCMC per rho.
+
+    b_min routes near-symmetric / small-b coordinates (b = sqrt(chi*psi)) to the
+    Inverse-Gamma proposal instead of the GIG rejection sampler, which stalls
+    when b is small or nu is small (|lam| large). Raised above run_em_MWGP's
+    default (0.05) because the random sparse true graph produces coordinates the
+    GIG envelope cannot handle."""
     result = em.run_em_MWGP(
         Y,
         n_iter=100,
@@ -47,6 +53,7 @@ def fit_S_tau(Y, reference_rho, mcmc_random_state=42):
         mcmc_warmup=30,
         random_state=mcmc_random_state,
         proposal="gig",
+        b_min=b_min,
     )
     return result["S_tau"]
 
@@ -89,7 +96,7 @@ def main():
     parser.add_argument("--p", type=int, default=5)
     parser.add_argument("--n", type=int, default=5000)
     parser.add_argument("--num_rho", type=int, default=30)
-    parser.add_argument("--rho_min", type=float, default=1e-3)
+    parser.add_argument("--rho_min", type=float, default=2e-3)
     parser.add_argument("--rho_max", type=float, default=3.0)
     parser.add_argument(
         "--reference_rho", type=float, default=0.0025,
@@ -103,7 +110,9 @@ def main():
     mu_true = rng.uniform(low=-1, high=1, size=p)
     eta_true = rng.uniform(low=-1, high=1, size=p)
     nu_true = rng.uniform(low=0.15, high=0.9, size=p)
-    Theta_true = make_true_theta(p)
+    # Random sparse true precision matrix; sparsity/weights are regulated by
+    # make_true_theta's defaults in simulation.py.
+    Theta_true = make_true_theta(p, rng=rng)
 
     iu = np.triu_indices(p, k=1)
     true_pos_mask = Theta_true[iu] != 0

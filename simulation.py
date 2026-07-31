@@ -28,12 +28,71 @@ def simulate_aat_data(n, p, mu, eta, nu, Theta_true, rng):
     Y = mu[None, :] + eta[None, :] * nu[None, :] * tau + np.sqrt(tau) * X
     return Y, tau
 
-def make_true_theta(p):
-    """Tridiagonal precision matrix (diag=2.0, first off-diag=0.5) used as
-    the ground-truth Theta for the p-dimensional simulation."""
-    Theta_true = np.eye(p) * 2.0
-    for j in range(p - 1):
-        Theta_true[j, j + 1] = Theta_true[j + 1, j] = 0.5
+def make_true_theta(
+    p,
+    sparsity=0.7,
+    rng=None,
+    weight_low=0.3,
+    weight_high=0.6,
+    signed=True,
+    condition_number=None,
+):
+    """Random sparse symmetric positive-definite precision matrix.
+
+    Construction follows Model III of docs/sggm.pdf: Theta = B + delta*I,
+    where B is a zero-diagonal symmetric matrix of random off-diagonal edges
+    and delta*I shifts the spectrum to make Theta positive definite.
+
+    Parameters
+    ----------
+    p : int
+        Dimension.
+    sparsity : float in [0, 1]
+        Probability that any given off-diagonal entry is ZERO (no edge).
+        Higher sparsity -> sparser graph. sparsity=0 gives a full matrix;
+        sparsity=1 gives a diagonal (identity) precision matrix.
+    rng : np.random.Generator, optional
+        Source of randomness. A fresh default generator is used if None, so
+        pass a seeded rng when you need a reproducible true graph.
+    weight_low, weight_high : float
+        Present edges get a magnitude drawn uniformly from this range.
+    signed : bool
+        If True, each present edge's sign is randomized (+/-).
+    condition_number : float, optional
+        Target condition number lambda_max(Theta)/lambda_min(Theta). delta is
+        chosen to hit it exactly, which also guarantees positive-definiteness.
+        Defaults to p (as in sggm.pdf Model III).
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+    if condition_number is None:
+        condition_number = float(p)
+
+    iu = np.triu_indices(p, k=1)
+    n_off = len(iu[0])
+
+    present = rng.random(n_off) >= sparsity          # edge kept w.p. 1 - sparsity
+    weights = rng.uniform(weight_low, weight_high, size=n_off)
+    if signed:
+        weights = weights * rng.choice([-1.0, 1.0], size=n_off)
+
+    B = np.zeros((p, p))
+    B[iu] = present * weights
+    B = B + B.T
+
+    evals = np.linalg.eigvalsh(B)
+    lam_min, lam_max = evals[0], evals[-1]
+
+    # No edges (or degenerate spectrum): fall back to identity precision.
+    if lam_max - lam_min < 1e-8:
+        return np.eye(p)
+
+    # delta solving (lam_max + delta) / (lam_min + delta) = condition_number.
+    # Since trace(B) = 0 we always have lam_min < 0 < lam_max, so delta > 0
+    # and lam_min + delta = (lam_max - lam_min) / (condition_number - 1) > 0.
+    delta = (lam_max - condition_number * lam_min) / (condition_number - 1.0)
+    Theta_true = B + delta * np.eye(p)
+
     assert np.all(np.linalg.eigvalsh(Theta_true) > 0)
     return Theta_true
 
@@ -50,7 +109,7 @@ if __name__ == "__main__":
     eta_true = rng.uniform(low=-1, high=1, size=p)
     # nu_true  = np.array([0.15, 0.25, 0.35, 0.10, 0.30])
     nu_true = rng.uniform(low=0.15, high=0.9, size=p)
-    Theta_true = make_true_theta(p)
+    Theta_true = make_true_theta(p, sparsity=0.7, rng=rng)
 
     """
     Command-line argument parsing

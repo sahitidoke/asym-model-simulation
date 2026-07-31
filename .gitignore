@@ -8,6 +8,7 @@ __pycache__/
 venv/
 env/
 ENV/
+docs/
 
 # Environment variables and secrets
 .env

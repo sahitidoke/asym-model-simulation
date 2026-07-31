@@ -771,10 +771,10 @@ def _sample_log_gig(lam, chi, psi, size_T, rng, max_rounds=200):
         need[rows[acc], cols[acc]] = False
 
     raise RuntimeError(
-        "GIG rejection sampler stalled; decrease b_min so that "
-        "near-symmetric coordinates use the inverse-gamma path."
+        "GIG rejection sampler stalled; increase b_min so that "
+        "near-symmetric (small-b) coordinates use the inverse-gamma path "
+        "(sites with b = sqrt(chi*psi) < b_min take that path)."
     )
-
 
 def run_em_MWGP(
     Y,
@@ -1097,7 +1097,7 @@ def run_em_MWGP(
 
         # =============== Update Theta via graphical lasso ============
         try:
-            _, Theta_new = graphical_lasso(S_tau, alpha=rho, max_iter=1000)
+            _, Theta_new = graphical_lasso(S_tau, alpha=rho, max_iter=2000)
         except Exception as e:
             if verbose:
                 print(

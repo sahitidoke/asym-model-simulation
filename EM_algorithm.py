@@ -1139,9 +1139,8 @@ def run_em_MWGP(
         it += 1
 
     return {
-        "mu": mu, "eta": eta, "nu": nu, "Theta": Theta, "history": hist,
-        "S_tau": S_tau,
-    }
+        "mu": mu, "eta": eta, "nu": nu, "Theta": Theta, "history": hist
+    }, S_tau
 
 def run_em_importance(
     Y,

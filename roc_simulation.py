@@ -41,7 +41,7 @@ def fit_S_tau(Y, reference_rho, mcmc_random_state=42, b_min=0.5):
     when b is small or nu is small (|lam| large). Raised above run_em_MWGP's
     default (0.05) because the random sparse true graph produces coordinates the
     GIG envelope cannot handle."""
-    result = em.run_em_MWGP(
+    _, S_tau = em.run_em_MWGP(
         Y,
         n_iter=100,
         rho=reference_rho,
@@ -55,7 +55,7 @@ def fit_S_tau(Y, reference_rho, mcmc_random_state=42, b_min=0.5):
         proposal="gig",
         b_min=b_min,
     )
-    return result["S_tau"]
+    return S_tau
 
 
 def edge_confusion(Theta_hat, true_pos_mask, true_neg_mask, tol=1e-8):

@@ -23,12 +23,12 @@ Y = data.load_control()
 # Run algorithm
 results,_ = em.run_em_MWGP(
     Y,
-    n_iter=10,
+    n_iter=100,
     rho=0.0025,
     verbose=True,
     err=1e-3,
     run_until_convergence=False,
-    mcmc_samples=400,
+    mcmc_samples=200,
     mcmc_thin=1,
     mcmc_warmup=30,
     random_state=42,

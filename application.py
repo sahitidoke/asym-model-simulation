@@ -14,6 +14,13 @@ parser.add_argument(
     help="Name for result json file. Default: None.",
 )
 
+parser.add_argument(
+    "--rho",
+    type=float,
+    default=0.0025,
+    help="Rho value. Default: 0.025.",
+)
+
 args = parser.parse_args()
 
 
@@ -23,10 +30,10 @@ Y = data.load_control()
 # Run algorithm
 results,_ = em.run_em_MWGP(
     Y,
-    n_iter=100,
-    rho=0.01,
+    n_iter=200,
+    rho=args.rho,
     verbose=True,
-    err=1e-3,
+    err=1e-5,
     run_until_convergence=False,
     mcmc_samples=200,
     mcmc_thin=1,

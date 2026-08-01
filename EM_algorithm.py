@@ -1,6 +1,6 @@
 import numpy as np
 from tqdm import tqdm
-from scipy.special import kve, digamma, logsumexp
+from scipy.special import kve, digamma, logsumexp, gammaln
 from scipy.optimize import brentq
 from scipy.stats import skew, geninvgauss
 from sklearn.covariance import graphical_lasso
@@ -1095,8 +1095,9 @@ def run_em_MWGP(
     rng = np.random.default_rng(random_state)
     state = np.zeros((n, p))
 
-    hist = {"mu": [], "eta": [], "nu": [], "theta_diag": []}
+    hist = {"mu": [], "eta": [], "nu": [], "theta_diag": [], "loglik": []}
     it = 0
+    ll_prev = None
 
     while True:
         # ============================ MCMC E-step ====================
@@ -1173,12 +1174,39 @@ def run_em_MWGP(
                 )
             Theta_new = Theta
 
-        diff = (
-            np.abs(mu_new - mu).sum()
-            + np.abs(eta_new - eta).sum()
-            + np.abs(nu_new - nu).sum()
-            + np.linalg.norm(Theta_new - Theta)
+        # =========== Convergence monitor: expected complete-data =====
+        # ========== log-likelihood Q(theta_new | theta_old) ==========
+        # Reuses the sufficient statistics already computed this iteration:
+        #   L_log  = E[log tau]                (n, p)
+        #   M_neg1 = E[1/tau]                  (n, p)
+        #   S_tau  = (1/(S n)) sum_s sum_i z z^T, so
+        #            sum_i E[z^T Theta z] = n * <S_tau, Theta_new>.
+        # Only slogdet(Theta_new) and the Inv-Gamma normalizer (gammaln) are
+        # new, both O(p); no extra pass over the (samples, n, p) draws.
+        a_nu = 2.0 / nu_new
+        _, logdet = np.linalg.slogdet(Theta_new)
+        quad = n * np.sum(S_tau * Theta_new)          # sum_i E[z^T Theta z]
+        ll_new = (
+            n * (
+                -0.5 * p * np.log(2.0 * np.pi)        # Gaussian normalizer
+                + 0.5 * logdet                         # (1/2) log|Theta|
+                + np.sum(a_nu * np.log(a_nu) - gammaln(a_nu))  # Inv-Gamma norm.
+            )
+            - 0.5 * L_log.sum()                        # -(1/2) sum_j log tau_j
+            - 0.5 * quad                               # -(1/2) z^T Theta z
+            - np.sum((a_nu[None, :] + 1.0) * L_log)    # -(a_j+1) log tau_j
+            - np.sum(a_nu[None, :] * M_neg1)           # -a_j / tau_j
         )
+
+        # Relative change in the expected complete-data log-likelihood. The
+        # log-likelihood scales with n, so a relative criterion keeps `err`
+        # meaningful across sample sizes. Monte Carlo noise in the E-step adds
+        # jitter, so very small `err` may not be reliably reachable.
+        if ll_prev is None:
+            ll_change = np.inf
+        else:
+            ll_change = abs(ll_new - ll_prev) / (abs(ll_prev) + 1e-12)
+        ll_prev = ll_new
 
         mu, gamma, nu, eta, Theta = (
             mu_new, gamma_new, nu_new, eta_new, Theta_new
@@ -1188,15 +1216,17 @@ def run_em_MWGP(
         hist["eta"].append(eta.copy())
         hist["nu"].append(nu.copy())
         hist["theta_diag"].append(np.diag(Theta).copy())
+        hist["loglik"].append(ll_new)
 
         if verbose and it % 5 == 0:
             print(
-                f"iter {it:3d} | param-change {diff:.10f} | "
+                f"iter {it:3d} | loglik {ll_new:.4f} | "
+                f"rel-change {ll_change:.3e} | "
                 f"acceptance-rate {np.round(acceptance_rate, 3)}"
             )
 
         if (
-            (run_until_convergence and diff < err)
+            (run_until_convergence and it > 0 and ll_change < err)
             or (not run_until_convergence and it >= n_iter)
         ):
             if verbose:

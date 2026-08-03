@@ -1,5 +1,7 @@
 """Plot ||Theta(rho_i) - Theta(rho_{i-1})||_F as rho increases."""
 
+import os
+
 import numpy as np
 from matplotlib import pyplot as plt
 
@@ -7,7 +9,9 @@ import sachs_min as data
 import EM_algorithm as em
 
 Y = data.load_control()
-rhos = np.arange(0, 0.01, 0.0005)
+rho_min = 0
+rho_max = 0.4
+rhos = np.arange(rho_min, rho_max, 0.005)
 
 thetas = []
 for rho in rhos:
@@ -23,4 +27,5 @@ diffs = np.linalg.norm(np.diff(thetas, axis=0), ord="fro", axis=(1, 2))
 plt.plot(rhos[1:], diffs, marker="o")
 plt.xlabel("rho")
 plt.ylabel("||Theta(rho_i) - Theta(rho_{i-1})||_F")
-plt.savefig("results/theta_vs_rho.pdf")
+os.makedirs("results/applications/theta_vs_rho", exist_ok=True)
+plt.savefig(f"results/applications/theta_vs_rho_{rho_min}_{rho_max}.pdf")

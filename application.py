@@ -2,6 +2,7 @@ import sachs_min as data
 import EM_algorithm as em
 import json
 import argparse
+import os
 
 parser = argparse.ArgumentParser(
     description="Run the asymmetric t-distribution application on real data."
@@ -50,6 +51,8 @@ output = {
     "Theta": results["Theta"].tolist(),
 }
 
-filename = f"results/application_results.json" if args.filename is None else f"results/application_results_{args.filename}.json"
+
+filename = f"results/applications/application_results.json" if args.filename is None else f"results/applications/{args.filename}.json"
+os.makedirs("results/applications", exist_ok=True)
 with open(filename, "w") as f:
     json.dump(output, f)

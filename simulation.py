@@ -15,6 +15,7 @@ import argparse
 import numpy as np
 import EM_algorithm as em
 import json
+import os
 
 rng = np.random.default_rng()
 
@@ -339,6 +340,7 @@ if __name__ == "__main__":
         }
     }
 
-    filename = f"results/results_{args.method}.json" if args.filename is None else f"results/results_{args.method}_{args.filename}.json"
+    filename = f"results/simulations/{args.method}.json" if args.filename is None else f"results/simulations/{args.method}_{args.filename}.json"
+    os.makedirs("results/simulations", exist_ok=True)
     with open(filename, "w") as f:
         json.dump(results, f)

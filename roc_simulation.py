@@ -14,6 +14,7 @@ Gaussian graphical lasso fit directly on the raw sample covariance of Y is
 included as a baseline, mirroring the GGM comparison in sggm.pdf.
 """
 
+import os
 import argparse
 import numpy as np
 import json
@@ -170,8 +171,8 @@ def main():
     fig.tight_layout()
 
     filename = (
-        "results/roc_EM_MWGP" if args.filename is None
-        else f"results/roc_EM_MWGP_{args.filename}"
+        "results/simulations/roc/roc_EM_MWGP" if args.filename is None
+        else f"results/simulations/roc/roc_EM_MWGP_{args.filename}"
     )
     fig.savefig(f"{filename}.pdf")
 
@@ -193,6 +194,7 @@ def main():
             "auc_se": float(auc_ggm.std(ddof=1) / np.sqrt(args.num_simulations)),
         },
     }
+    os.makedirs("results/simulations/roc", exist_ok=True)
     with open(f"{filename}.json", "w") as f:
         json.dump(results, f)
 

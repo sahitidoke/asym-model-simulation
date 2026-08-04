@@ -896,7 +896,7 @@ def run_em_MWGP(
         chi = 2.0 * beta[None, :] + residual**2 * theta_diag[None, :]
         psi = theta_diag * gamma**2
         b = np.sqrt(chi * psi[None, :])          # (n, p)
-        use_ig = b < b_min                        # InvGamma-path mask
+        use_ig = (b * b < np.abs(lam)[None, :]) | (b < b_min)   # dimensionless InvGamma-path mask
         tau_cur = np.exp(U) if use_ig.any() else None
 
         # ---------- (S3)/(S4) per-class constants --------------------

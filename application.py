@@ -1,4 +1,5 @@
-import sachs_min as data
+import sachs_min
+import SNP500
 import EM_algorithm as em
 import json
 import argparse
@@ -16,23 +17,28 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--rho",
-    type=float,
-    default=0.0025,
-    help="Rho value. Default: 0.025.",
+    "--database",
+    type=str,
+    default="sachs_min",
+    help="Database name. Default: sachs_min.",
 )
 
 args = parser.parse_args()
 
 
 # Load data
-Y = data.load_control()
+if args.database == "sachs_min":
+    Y = sachs_min.load_control()
+elif args.database == "SNP500":
+    Y = SNP500.load_snp_500()
+    Y = Y[:,:50]  # Use only the first 50 stocks for n >> p
 
+m, s = Y.mean(0), Y.std(0, ddof=1)
 # Run algorithm
 results,_ = em.run_em_MWGP(
-    Y,
+    (Y - m) / s,
     n_iter=200,
-    rho=args.rho,
+    rho=0.2,
     verbose=True,
     err=1e-5,
     run_until_convergence=False,

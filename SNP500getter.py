@@ -2,7 +2,7 @@ import yfinance as yf
 import csv
 import pandas
 import numpy
-f = open('constituents.csv','r')
+f = open('data/constituents.csv','r')
 d = csv.reader(f)
 tickers = []
 for row in d:
@@ -33,7 +33,7 @@ for ticker in tickers:
         data[ticker] = numpy.log10 (d['Close'] / d['Open'])
 
 
-pandas.DataFrame.from_dict(data).to_csv('prices.csv')
+pandas.DataFrame.from_dict(data).to_csv('data/prices.csv')
 
 # df = get_historical_data('AAPL', '2025-01-01', '2026-01-01')
 # print(df.tail())

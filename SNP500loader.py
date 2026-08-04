@@ -3,7 +3,7 @@ import numpy
 import csv
 
 def load_snp_500():
-    f = open('prices.csv','r')
+    f = open('data/prices.csv','r')
     d = csv.reader(f)
 
     data_matrix = []

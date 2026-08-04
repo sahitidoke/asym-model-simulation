@@ -18,13 +18,18 @@ def get_historical_data(symbol, start, end, interval='1d'):
 
     return df
 
-def load_snp_500():
+def load_snp_500(p = None):
     f = open('data/prices.csv','r')
     
     price_df = pandas.read_csv(f, index_col=0)
     data_matrix = price_df.to_numpy()
+    NAMES = price_df.columns.tolist()
     
-    return data_matrix
+    if p is not None:
+        data_matrix = data_matrix[:,:p]
+        NAMES = NAMES[:p]
+    
+    return data_matrix, NAMES
 
 if __name__ == "__main__":
     # Read in the tickers from the CSV file

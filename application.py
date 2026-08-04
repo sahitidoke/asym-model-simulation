@@ -4,6 +4,7 @@ import EM_algorithm as em
 import json
 import argparse
 import os
+import numpy as np
 
 parser = argparse.ArgumentParser(
     description="Run the asymmetric t-distribution application on real data."
@@ -28,17 +29,23 @@ args = parser.parse_args()
 
 # Load data
 if args.database == "sachs_min":
-    Y = sachs_min.load_control()
+    Y, NAMES = sachs_min.load_control()
 elif args.database == "SNP500":
-    Y = SNP500.load_snp_500()
-    Y = Y[:,:50]  # Use only the first 50 stocks for n >> p
+    Y, NAMES = SNP500.load_snp_500(50)
 
 m, s = Y.mean(0), Y.std(0, ddof=1)
+Y_standardized = (Y - m) / s
+
 # Run algorithm
+n,p = Y.shape
+RHO = np.sqrt(np.log(p)/n)  # default rho for application
+print(f"Running EM algorithm on {args.database} data with shape {Y.shape} and rho={RHO:.4f}...\n")
+print("=" * 80)
+
 results,_ = em.run_em_MWGP(
-    (Y - m) / s,
+    Y_standardized,
     n_iter=200,
-    rho=0.2,
+    rho=RHO,
     verbose=True,
     err=1e-5,
     run_until_convergence=False,
@@ -55,6 +62,7 @@ output = {
     "eta": results["eta"].tolist(),
     "nu": results["nu"].tolist(),
     "Theta": results["Theta"].tolist(),
+    "NAMES": NAMES,
 }
 
 

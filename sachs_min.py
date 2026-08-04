@@ -41,7 +41,7 @@ def load_control(path=None):
     df = df.drop(columns=[c for c in df.columns
                           if str(c).lower() in {"group", "condition", "int"}],
                  errors="ignore")
-    return np.ascontiguousarray(df.to_numpy(dtype=np.float64))
+    return np.ascontiguousarray(df.to_numpy(dtype=np.float64)), NAMES
 
 
 def skewness_test(X, names=NAMES):

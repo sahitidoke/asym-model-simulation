@@ -10,7 +10,7 @@ def simulate_aat_data(n, p, mu, eta, nu, Theta_true, rng):
     Y = mu[None, :] + eta[None, :] * nu[None, :] * tau + np.sqrt(tau) * X
     return Y, tau
 
-def generate_data(n, p, Theta_true,
+def simulate_noisy_gaussian_data(n, p, Theta_true,
                   skewness=0.0, 
                   outlier_frac=0.0, 
                   outlier_scale=4.0,

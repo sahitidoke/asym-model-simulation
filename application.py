@@ -4,6 +4,7 @@ import json
 import argparse
 import os
 import matplotlib.pyplot as plt
+import numpy as np
 
 parser = argparse.ArgumentParser(
     description="Run the asymmetric t-distribution application on real data."
@@ -48,19 +49,21 @@ n,p = Y.shape
 fitting_algorithm = em.run_em_MWGP
 
 # Select RHO using StARS
+RHO = np.sqrt(np.log(p)/n)  # default value if StARS fails
 rho_grid = stars.rho_grid(Y, k = 10)
-print(f"Rho grid: {rho_grid}")
-RHO, rho_curve = stars.stars(Y, rho_grid, fitting_algorithm, N = 10, beta = 0.05)
+print(f"Theoretical Rho: {RHO}, Rho grid: {rho_grid}")
 
-# plot rho_curve, which is a python list of tuples (rho, D)
-plt.figure(figsize=(10, 6))
-plt.plot([rho for rho, _ in rho_curve], [D for _, D in rho_curve], 'o-')
-plt.xlabel('Rho')
-plt.ylabel('D')
-plt.title('StARS: Rho Selection')
-plt.savefig(f"results/applications/rho_curve_{args.database}.pdf")
+# RHO, rho_curve = stars.stars(Y, rho_grid, fitting_algorithm, N = 10, beta = 0.05)
 
-print(f"Running EM algorithm on {args.database} data with shape {Y.shape} and rho={RHO:.4f}...\n")
+# # plot rho_curve, which is a python list of tuples (rho, D)
+# plt.figure(figsize=(10, 6))
+# plt.plot([rho for rho, _ in rho_curve], [D for _, D in rho_curve], 'o-')
+# plt.xlabel('Rho')
+# plt.ylabel('D')
+# plt.title('StARS: Rho Selection')
+# plt.savefig(f"results/applications/rho_curve_{args.database}.pdf")
+
+print(f"Running EM algorithm on {args.database} data with shape {Y.shape} and rho={RHO:.5f}...\n")
 print("=" * 80)
 
 results = fitting_algorithm(

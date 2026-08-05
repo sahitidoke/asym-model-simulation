@@ -16,18 +16,10 @@ import numpy as np
 import EM_algorithm as em
 import json
 import os
+from aat_vae import VAEConfig, fit_aat_vae
+import simulation_data_generator as dg
 
 rng = np.random.default_rng()
-
-def simulate_aat_data(n, p, mu, eta, nu, Theta_true, rng):
-    Psi_true = np.linalg.inv(Theta_true)
-    alpha = 2.0 / nu
-    beta = 2.0 / nu
-    G = rng.gamma(shape=alpha, scale=1.0 / beta, size=(n, p))
-    tau = 1.0 / G
-    X = rng.multivariate_normal(mean=np.zeros(p), cov=Psi_true, size=n)
-    Y = mu[None, :] + eta[None, :] * nu[None, :] * tau + np.sqrt(tau) * X
-    return Y, tau
 
 def make_true_theta(
     p,
@@ -98,8 +90,6 @@ def make_true_theta(
     return Theta_true
 
 if __name__ == "__main__":
-    from aat_vae import VAEConfig, fit_aat_vae
-    from eta_nu_profile import profile_eta_nu
 
     """
     Command-line argument parsing
@@ -169,7 +159,7 @@ if __name__ == "__main__":
     NUM_SIMULATIONS = args.num_simulations
     for sim in range(NUM_SIMULATIONS):
         print(f"Simulation {sim+1}")
-        Y, tau_true = simulate_aat_data(args.n, args.p, mu_true, eta_true, nu_true, Theta_true, rng)
+        Y, tau_true = dg.simulate_aat_data(args.n, args.p, mu_true, eta_true, nu_true, Theta_true, rng)
         print(f"Simulated data: Y shape = {Y.shape}")
         mus, etas, nus, thetas = [], [], [], []
         if args.method == "VAE":
@@ -183,26 +173,6 @@ if __name__ == "__main__":
 
             model, history = fit_aat_vae(Y, config=config)
             result = model.decoder.estimates()
-
-            if args.diagnostics:
-                diagnostic = profile_eta_nu(
-                    y=Y,
-                    coordinate=0,
-                    fitted_model=model,
-                    grid_size=7,
-                    profile_epochs=150,
-                    importance_samples=512,
-                    output_prefix="eta_nu_coordinate_0",
-                )
-
-                print(diagnostic["decision"])
-                print("Identifiable:", diagnostic["bounded_95_region"])
-                print(
-                    "Touches grid boundary:",
-                    diagnostic["touches_grid_boundary"],
-                )
-                print("Eta 95% range:", diagnostic["eta_95_grid_range"])
-                print("Nu 95% range:", diagnostic["nu_95_grid_range"])
 
         elif args.method == "EM_EXACT":
             if args.diagnostics:

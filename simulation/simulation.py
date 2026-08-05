@@ -13,10 +13,10 @@ python simulation.py --method em_diagonal --num_simulations 10 --filename large_
 
 import argparse
 import numpy as np
-import EM_algorithm as em
+from method import EM_algorithm as em
 import json
 import os
-from aat_vae import VAEConfig, fit_aat_vae
+from method import aat_vae
 import simulation_data_generator as dg
 
 rng = np.random.default_rng()
@@ -163,7 +163,7 @@ if __name__ == "__main__":
         print(f"Simulated data: Y shape = {Y.shape}")
         mus, etas, nus, thetas = [], [], [], []
         if args.method == "VAE":
-            config = VAEConfig(
+            config = aat_vae.VAEConfig(
                 epochs=100,
                 posterior_samples=16,
                 theta_l1=0.0025,
@@ -171,7 +171,7 @@ if __name__ == "__main__":
                 flow_layers=6
             )
 
-            model, history = fit_aat_vae(Y, config=config)
+            model, history = aat_vae.fit_aat_vae(Y, config=config)
             result = model.decoder.estimates()
 
         elif args.method == "EM_EXACT":

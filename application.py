@@ -1,11 +1,9 @@
-import sachs_min
-import SNP500
-import EM_algorithm as em
+from data import sachs_min, SNP500
+from method import EM_algorithm as em, stars
 import json
 import argparse
 import os
 import numpy as np
-import stars
 import matplotlib.pyplot as plt
 
 parser = argparse.ArgumentParser(

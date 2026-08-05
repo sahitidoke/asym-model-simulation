@@ -5,9 +5,18 @@ import json
 import argparse
 import os
 import numpy as np
+import stars
+import matplotlib.pyplot as plt
 
 parser = argparse.ArgumentParser(
     description="Run the asymmetric t-distribution application on real data."
+)
+
+parser.add_argument(
+    "--standardize",
+    type = bool,
+    default = False,
+    help="Standardize the data before running the algorithm. Default: False.",
 )
 
 parser.add_argument(
@@ -33,22 +42,37 @@ if args.database == "sachs_min":
 elif args.database == "SNP500":
     Y, NAMES = SNP500.load_snp_500(50)
 
-m, s = Y.mean(0), Y.std(0, ddof=1)
-Y_standardized = (Y - m) / s
+# Standardize data
+if (args.standardize):
+    Y = (Y - Y.mean(axis=0)) / Y.std(axis=0)
 
 # Run algorithm
 n,p = Y.shape
 RHO = np.sqrt(np.log(p)/n)  # default rho for application
+fitting_algorithm = em.run_em_MWGP
+
+# Select RHO using StARS
+rho_grid = stars.rho_grid(Y)
+print(f"Rho grid: {rho_grid}")
+RHO, rho_curve = stars.stars(Y, rho_grid, fitting_algorithm, N = 20, beta = 0.05)
+
+# plot rho_curve, which is a python list of tuples (rho, D)
+plt.figure(figsize=(10, 6))
+plt.plot([rho for rho, _ in rho_curve], [D for _, D in rho_curve], 'o-')
+plt.xlabel('Rho')
+plt.ylabel('D')
+plt.title('StARS: Rho Selection')
+plt.savefig(f"results/applications/rho_curve_{args.database}.pdf")
+
 print(f"Running EM algorithm on {args.database} data with shape {Y.shape} and rho={RHO:.4f}...\n")
 print("=" * 80)
 
-results,_ = em.run_em_MWGP(
-    Y_standardized,
+results = fitting_algorithm(
+    Y,
     n_iter=200,
     rho=RHO,
     verbose=True,
-    err=1e-5,
-    run_until_convergence=False,
+    warning=True,
     mcmc_samples=200,
     mcmc_thin=1,
     mcmc_warmup=30,
@@ -70,3 +94,4 @@ filename = f"results/applications/application_results.json" if args.filename is 
 os.makedirs("results/applications", exist_ok=True)
 with open(filename, "w") as f:
     json.dump(output, f)
+

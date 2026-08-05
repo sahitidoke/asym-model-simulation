@@ -9,7 +9,7 @@ venv/
 env/
 ENV/
 docs/
-data/
+data/*.csv
 
 # Environment variables and secrets
 .env

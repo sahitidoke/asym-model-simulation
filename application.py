@@ -3,7 +3,6 @@ from method import EM_algorithm as em, stars
 import json
 import argparse
 import os
-import numpy as np
 import matplotlib.pyplot as plt
 
 parser = argparse.ArgumentParser(
@@ -46,13 +45,12 @@ if (args.standardize):
 
 # Run algorithm
 n,p = Y.shape
-RHO = np.sqrt(np.log(p)/n)  # default rho for application
 fitting_algorithm = em.run_em_MWGP
 
 # Select RHO using StARS
-rho_grid = stars.rho_grid(Y)
+rho_grid = stars.rho_grid(Y, k = 10)
 print(f"Rho grid: {rho_grid}")
-RHO, rho_curve = stars.stars(Y, rho_grid, fitting_algorithm, N = 20, beta = 0.05)
+RHO, rho_curve = stars.stars(Y, rho_grid, fitting_algorithm, N = 10, beta = 0.05)
 
 # plot rho_curve, which is a python list of tuples (rho, D)
 plt.figure(figsize=(10, 6))

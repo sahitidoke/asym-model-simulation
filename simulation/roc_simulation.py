@@ -21,40 +21,15 @@ import json
 from sklearn.covariance import graphical_lasso
 from matplotlib import pyplot as plt
 
-import EM_algorithm as em
-from simulation import simulate_aat_data, make_true_theta
+from method import EM_algorithm as em
+from simulation import make_true_theta
+import simulation_data_generator as dg
 
 rng = np.random.default_rng()
 
 COLOR_ASYM = "#2a78d6"
 COLOR_GGM = "#e34948"
 COLOR_CHANCE = "#c3c2b7"
-
-
-def fit_S_tau(Y, reference_rho, mcmc_random_state=42, b_min=0.5):
-    """Fit EM_MWGP and return the expected sufficient statistic S_tau from its
-    final MCMC E-step. S_tau is the (mu, eta, nu)-fixed covariance surrogate
-    that the glasso step consumes, so sweeping rho amounts to re-solving glasso
-    on this single S_tau -- no need to rerun the expensive MCMC per rho.
-
-    b_min routes near-symmetric / small-b coordinates (b = sqrt(chi*psi)) to the
-    Inverse-Gamma proposal instead of the GIG rejection sampler, which stalls
-    when b is small or nu is small (|lam| large). Raised above run_em_MWGP's
-    default (0.05) because the random sparse true graph produces coordinates the
-    GIG envelope cannot handle."""
-    results = em.run_em_MWGP(
-        Y,
-        n_iter=100,
-        rho=reference_rho,
-        verbose=True,
-        err=1e-3,
-        run_until_convergence=False,
-        random_state=mcmc_random_state,
-        proposal="gig",
-        b_min=b_min,
-    )
-    return results["S_tau"]
-
 
 def edge_confusion(Theta_hat, true_pos_mask, true_neg_mask, tol=1e-8):
     iu = np.triu_indices(Theta_hat.shape[0], k=1)
@@ -108,8 +83,6 @@ def main():
     mu_true = rng.uniform(low=-1, high=1, size=p)
     eta_true = rng.uniform(low=-1, high=1, size=p)
     nu_true = rng.uniform(low=0.15, high=0.9, size=p)
-    # Random sparse true precision matrix; sparsity/weights are regulated by
-    # make_true_theta's defaults in simulation.py.
     Theta_true = make_true_theta(p, rng=rng)
 
     iu = np.triu_indices(p, k=1)
@@ -127,11 +100,12 @@ def main():
 
     for sim in range(args.num_simulations):
         print(f"Replicate {sim + 1}/{args.num_simulations}")
-        Y, _ = simulate_aat_data(n, p, mu_true, eta_true, nu_true, Theta_true, rng)
 
-        S_tau = fit_S_tau(
-            Y, args.reference_rho, mcmc_random_state=1000 + sim
-        )
+        # Generate data from an independent model (noisy skewed Gaussian)
+        Y, _ = dg.simulate_aat_data(n, p, mu_true, eta_true, nu_true, Theta_true, rng)
+
+
+        S_tau = None ## STUB
         fp_asym[sim], tp_asym[sim] = roc_curve_over_rho(
             S_tau, rho_grid, true_pos_mask, true_neg_mask
         )

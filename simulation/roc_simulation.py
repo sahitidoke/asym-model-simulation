@@ -2,8 +2,8 @@
 Mean ROC/AUC curves for precision-matrix support recovery, in the style of
 Fig. 1-3 / Table 1 of docs/sggm.pdf.
 
-Running instructions:
-    python roc_simulation.py --num_simulations 30 --filename diagonal
+Running instructions (from the repository root):
+    python -m simulation.roc_simulation --num_simulations 30 --filename diagonal
 
 For each replicate: simulate Y from the true model, run one EM_MWGP fit to
 obtain the expected sufficient statistic S_tau from its MCMC E-step, then
@@ -22,13 +22,15 @@ from sklearn.covariance import graphical_lasso
 from matplotlib import pyplot as plt
 
 from method import EM_algorithm as em, tlasso
-from simulation import make_true_theta
-import simulation_data_generator as dg
+from simulation.simulation import make_true_theta
+from simulation import simulation_data_generator as dg
 
 rng = np.random.default_rng()
 
 COLOR_ASYM = "#2a78d6"
 COLOR_GGM = "#e34948"
+COLOR_T = "#f5a623"
+COLOR_TS = "#23f57e"
 COLOR_CHANCE = "#c3c2b7"
 
 def edge_confusion(Theta_hat, true_pos_mask, true_neg_mask, tol=1e-8):
@@ -98,18 +100,15 @@ def main():
         description="Mean ROC/AUC curves for precision-matrix support recovery."
     )
     parser.add_argument("--filename", type=str, default=None)
-    parser.add_argument("--num_simulations", type=int, default=30)
+    parser.add_argument("--num_simulations", type=int, default=10)
     parser.add_argument("--p", type=int, default=5)
-    parser.add_argument("--n", type=int, default=5000)
+    parser.add_argument("--n", type=int, default=2000)
     parser.add_argument("--num_rho", type=int, default=30)
     parser.add_argument("--rho_min", type=float, default=2e-3)
     parser.add_argument("--rho_max", type=float, default=3.0)
     args = parser.parse_args()
 
     p, n = args.p, args.n
-    mu_true = rng.uniform(low=-1, high=1, size=p)
-    eta_true = rng.uniform(low=-1, high=1, size=p)
-    nu_true = rng.uniform(low=0.15, high=0.9, size=p)
     Theta_true = make_true_theta(p, rng=rng)
 
     iu = np.triu_indices(p, k=1)
@@ -213,6 +212,7 @@ def main():
     ax.legend(loc="lower right")
     fig.tight_layout()
 
+    os.makedirs("results/simulations/roc", exist_ok=True)
     filename = (
         "results/simulations/roc/roc_EM_MWGP" if args.filename is None
         else f"results/simulations/roc/roc_EM_MWGP_{args.filename}"
@@ -237,7 +237,7 @@ def main():
             "auc_se": float(auc_ggm.std(ddof=1) / np.sqrt(args.num_simulations)),
         },
     }
-    os.makedirs("results/simulations/roc", exist_ok=True)
+    
     with open(f"{filename}.json", "w") as f:
         json.dump(results, f)
 

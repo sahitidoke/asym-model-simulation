@@ -1,14 +1,14 @@
 """
-Running instructions (run in terminal):
+Running instructions (run in terminal, from the repository root):
 # VAE without diagnostics
-python simulation.py --method vae
+python -m simulation.simulation --method vae
 
 # VAE with identifiability diagnostics
-python simulation.py --method vae --diagnostics
+python -m simulation.simulation --method vae --diagnostics
 
 # EM
 Example:
-python simulation.py --method em_diagonal --num_simulations 10 --filename large_mu
+python -m simulation.simulation --method em_diagonal --num_simulations 10 --filename large_mu
 """
 
 import argparse
@@ -17,7 +17,7 @@ from method import EM_algorithm as em
 import json
 import os
 from method import aat_vae
-import simulation_data_generator as dg
+from simulation import simulation_data_generator as dg
 
 rng = np.random.default_rng()
 

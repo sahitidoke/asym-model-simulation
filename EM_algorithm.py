@@ -811,9 +811,9 @@ def run_em_MWGP(
     Y,
     n_iter=100,
     rho=0.05,
+    init = None,
     verbose=True,
-    err=1e-3,
-    run_until_convergence=False,
+    warning=True,
     mcmc_burn=150,
     mcmc_warmup=30,
     mcmc_samples=200,
@@ -1084,13 +1084,17 @@ def run_em_MWGP(
     # EM driver (unchanged from your version)
     # =================================================================
     n, p = Y.shape
-
-    mu = Y.mean(axis=0)
-    nu = np.full(p, 0.5)
-    scale = np.maximum(Y.std(axis=0, ddof=1), 1e-8)
-    gamma = 0.1 * scale * np.tanh(skew(Y, axis=0, bias=False))
-    eta = gamma / nu
-    Theta = np.diag(1.0 / Y.var(axis=0))
+    if init is None:
+        mu = Y.mean(axis=0)
+        nu = np.full(p, 0.5)
+        scale = np.maximum(Y.std(axis=0, ddof=1), 1e-8)
+        gamma = 0.1 * scale * np.tanh(skew(Y, axis=0, bias=False))
+        eta = gamma / nu
+        Theta = np.diag(1.0 / Y.var(axis=0))
+    else:
+        Theta, mu, nu, eta = init["Theta"], init["mu"], init["nu"], init["eta"]
+        gamma = nu * eta
+        mcmc_burn = 50
 
     rng = np.random.default_rng(random_state)
     state = np.zeros((n, p))
@@ -1099,7 +1103,7 @@ def run_em_MWGP(
     it = 0
     ll_prev = None
 
-    while True:
+    for it in range(n_iter):
         # ============================ MCMC E-step ====================
         burn = mcmc_burn if it == 0 else mcmc_warmup
 
@@ -1165,9 +1169,9 @@ def run_em_MWGP(
 
         # =============== Update Theta via graphical lasso ============
         try:
-            _, Theta_new = graphical_lasso(S_tau, alpha=rho, max_iter=2000)
+            _, Theta_new = graphical_lasso(S_tau, alpha=rho, max_iter=20000)
         except Exception as e:
-            if verbose:
+            if warning:
                 print(
                     f"  [warn] glasso failed at iter {it}: {e}; "
                     f"keeping previous Theta"
@@ -1225,19 +1229,9 @@ def run_em_MWGP(
                 f"acceptance-rate {np.round(acceptance_rate, 3)}"
             )
 
-        if (
-            (run_until_convergence and it > 0 and ll_change < err)
-            or (not run_until_convergence and it >= n_iter)
-        ):
-            if verbose:
-                print(f"Converged at iteration {it}.")
-            break
-
-        it += 1
-
     return {
-        "mu": mu, "eta": eta, "nu": nu, "Theta": Theta, "history": hist
-    }, S_tau
+        "mu": mu, "eta": eta, "nu": nu, "Theta": Theta, "history": hist, "S_tau": S_tau,
+    }
 
 def run_em_importance(
     Y,

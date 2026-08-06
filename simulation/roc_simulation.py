@@ -105,7 +105,7 @@ def main():
         description="Mean ROC/AUC curves for precision-matrix support recovery."
     )
     parser.add_argument("--filename", type=str, default=None)
-    parser.add_argument("--num_simulations", type=int, default=10)
+    parser.add_argument("--num_simulations", type=int, default=50)
     parser.add_argument("--p", type=int, default=20)
     parser.add_argument("--n", type=int, default=2000)
     parser.add_argument("--num_rho", type=int, default=21)

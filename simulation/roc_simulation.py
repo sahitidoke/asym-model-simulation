@@ -3,7 +3,7 @@ Mean ROC/AUC curves for precision-matrix support recovery, in the style of
 Fig. 1-3 / Table 1 of docs/sggm.pdf.
 
 Running instructions (from the repository root):
-    python -m simulation.roc_simulation --num_simulations 30 --filename diagonal
+    python -m simulation.roc_simulation --num_simulations 20 --filename five_methods_comparison
 
 For each replicate: simulate Y from the true model, run one EM_MWGP fit to
 obtain the expected sufficient statistic S_tau from its MCMC E-step, then
@@ -271,8 +271,8 @@ def main():
 
     os.makedirs("results/simulations/roc", exist_ok=True)
     filename = (
-        "results/simulations/roc/roc_EM_MWGP" if args.filename is None
-        else f"results/simulations/roc/roc_EM_MWGP_{args.filename}"
+        "results/simulations/roc/roc" if args.filename is None
+        else f"results/simulations/roc/roc_{args.filename}"
     )
     fig.savefig(f"{filename}.pdf")
 

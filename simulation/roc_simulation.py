@@ -105,7 +105,6 @@ def main():
         description="Mean ROC/AUC curves for precision-matrix support recovery."
     )
     parser.add_argument("--filename", type=str, default=None)
-    parser.add_argument("--method", type=str, default="diagonal", choices=["diagonal", "mwgp"])
     parser.add_argument("--num_simulations", type=int, default=10)
     parser.add_argument("--p", type=int, default=20)
     parser.add_argument("--n", type=int, default=2000)
@@ -216,13 +215,13 @@ def main():
     fp_ts_mean, tp_ts_mean = fp_ts.mean(axis=0), tp_ts.mean(axis=0)
 
     print(f"\n(p={p}, n={n}) over {args.num_simulations} replicates")
-    print(f"  Asymmetric model ({args.method}): AUC = {auc_mwgp.mean():.3f} "
+    print(f"  Asymmetric model (MWGP): AUC = {auc_mwgp.mean():.3f} "
           f"(SE {auc_mwgp.std(ddof=1) / np.sqrt(args.num_simulations):.3f})")
     print(f"  Classical t-model (TLASSO): AUC = {auc_t.mean():.3f} "
           f"(SE {auc_t.std(ddof=1) / np.sqrt(args.num_simulations):.3f})")
     print(f"  Alternative t-model (TSTAR_VARLASSO): AUC = {auc_ts.mean():.3f} "
           f"(SE {auc_ts.std(ddof=1) / np.sqrt(args.num_simulations):.3f})")
-    print(f"  Asymmetric diagonal model: AUC = {auc_em_diag.mean():.3f} "
+    print(f"  Asymmetric model (Diagonal): AUC = {auc_em_diag.mean():.3f} "
           f"(SE {auc_em_diag.std(ddof=1) / np.sqrt(args.num_simulations):.3f})")
     print(f"  Naive Gaussian glasso (GGM): AUC = {auc_ggm.mean():.3f} "
           f"(SE {auc_ggm.std(ddof=1) / np.sqrt(args.num_simulations):.3f})")
@@ -231,7 +230,7 @@ def main():
     ax.plot([0, 1], [0, 1], linestyle="--", linewidth=1, color=COLOR_CHANCE)
     ax.plot(
         fp_mwgp_mean, tp_mwgp_mean, color=COLOR_ASYM, linewidth=2,
-        label=f"Asym. model mcmc, avg AUC={auc_mwgp.mean():.3f}",
+        label=f"Asym. model MWGP, avg AUC={auc_mwgp.mean():.3f}",
     )
     ax.plot(
         fp_em_diag_mean, tp_em_diag_mean, color=COLOR_EM_DIAG, linewidth=2,
@@ -280,7 +279,6 @@ def main():
     results = {
         "p": p,
         "n": n,
-        "method": "EM_MWGP",
         "rho_grid": rho_grid.tolist(),
         "theoretical_rho": float(theoretical_rho),
         "asym_mwgp": {

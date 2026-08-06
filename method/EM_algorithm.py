@@ -18,7 +18,7 @@ def gig_log_moment_fd(lam, chi, psi, h=1e-4):
     return 0.5 * np.log(chi / psi) + (log_num - log_den) / (2 * h)
 
 
-def run_em_diagonal(Y, n_iter=60, rho=0.05, verbose=True, err=1e-3, run_until_convergence=False):
+def run_em_diagonal(Y, n_iter=60, rho=0.05, verbose=True):
     n, p = Y.shape
     mu = Y.mean(axis=0)
     gamma = np.full(p, 0.5)            
@@ -29,7 +29,7 @@ def run_em_diagonal(Y, n_iter=60, rho=0.05, verbose=True, err=1e-3, run_until_co
 
     hist = {"mu": [], "eta": [], "nu": [], "theta_diag": []}
     it = 0
-    while True:
+    for it in range(n_iter):
         # Compute GIG parameters 
         lam = -2.0 / nu - 0.5                                   # (p,)
         chi = 4.0 / nu[None, :] + theta_bar[None, :] * (Y - mu[None, :]) ** 2   # (n,p)
@@ -130,12 +130,6 @@ def run_em_diagonal(Y, n_iter=60, rho=0.05, verbose=True, err=1e-3, run_until_co
 
         if verbose and (it % 5 == 0):
             print(f"iter {it:3d} | param-change {diff:.10f}")
-
-        if (diff < err and it > 5) or (not run_until_convergence and it >= n_iter):
-            if verbose:
-                print(f"Converged at iteration {it}.")
-            break
-        it += 1
 
     return {"mu": mu, "eta": eta, "nu": nu, "Theta": Theta, "history": hist}
 

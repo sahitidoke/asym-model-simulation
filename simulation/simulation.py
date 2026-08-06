@@ -65,6 +65,11 @@ def make_true_theta(
     n_off = len(iu[0])
 
     present = rng.random(n_off) >= sparsity          # edge kept w.p. 1 - sparsity
+    # An empty graph has no positive class, which makes TPR (and hence any ROC
+    # curve over this Theta) undefined. For small p this is not rare -- p=5 with
+    # sparsity=0.7 gives 0.7^10 ~ 2.8% -- so force at least one edge.
+    if not present.any():
+        present[rng.integers(n_off)] = True
     weights = rng.uniform(weight_low, weight_high, size=n_off)
     if signed:
         weights = weights * rng.choice([-1.0, 1.0], size=n_off)
@@ -159,7 +164,7 @@ if __name__ == "__main__":
     NUM_SIMULATIONS = args.num_simulations
     for sim in range(NUM_SIMULATIONS):
         print(f"Simulation {sim+1}")
-        Y, tau_true = dg.simulate_aat_data(args.n, args.p, mu_true, eta_true, nu_true, Theta_true, rng)
+        Y, tau_true = dg.simulate_noisy_gaussian_data(args.n, args.p, Theta_true)
         print(f"Simulated data: Y shape = {Y.shape}")
         mus, etas, nus, thetas = [], [], [], []
         if args.method == "VAE":

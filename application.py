@@ -30,6 +30,13 @@ parser.add_argument(
     default="sachs_min",
     help="Database name. Default: sachs_min.",
 )
+parser.add_argument(
+    "--method", 
+    type=str, 
+    default="diagonal", 
+    choices=["diagonal", "mwgp"]
+)
+
 
 args = parser.parse_args()
 
@@ -46,7 +53,10 @@ if (args.standardize):
 
 # Run algorithm
 n,p = Y.shape
-fitting_algorithm = em.run_em_MWGP
+if (args.method == "DIAGONAL"):
+    fitting_algorithm = em.run_em_diagonal
+elif (args.method == "MWGP"):   
+    fitting_algorithm = em.run_em_MWGP
 
 # Select RHO using StARS
 RHO = np.sqrt(np.log(p)/n)  # default value if StARS fails

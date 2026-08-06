@@ -56,7 +56,9 @@ def roc_curve_em(
     fp = np.empty(len(rho_grid))
     tp = np.empty(len(rho_grid))
     Theta_prev = np.eye(Y.shape[1])
-    for i in np.argsort(rho_grid)[::-1]:
+    print(f"Running {algorithm.__name__} over {len(rho_grid)} rho values...")
+    for i in range(len(rho_grid)):
+        print(f"  rho={rho_grid[i]:.5f} ({i+1}/{len(rho_grid)})")
         try:
             Theta_hat = algorithm(Y, **{rho_name: rho_grid[i]}, **kwargs)[theta_key]
         except Exception:
@@ -78,7 +80,9 @@ def roc_curve_glasso(Y, rho_grid, true_pos_mask, true_neg_mask, glasso_kwargs=No
     fp = np.empty(len(rho_grid))
     tp = np.empty(len(rho_grid))
     Theta_prev = np.eye(Y.shape[1])
-    for i in np.argsort(rho_grid)[::-1]:
+    print(f"Running graphical_lasso over {len(rho_grid)} rho values...")
+    for i in range(len(rho_grid)):
+        print(f"  rho={rho_grid[i]:.5f} ({i+1}/{len(rho_grid)})")
         try:
             _, Theta_hat = graphical_lasso(S, alpha=rho_grid[i], **kwargs)
         except Exception:
@@ -100,12 +104,24 @@ def main():
         description="Mean ROC/AUC curves for precision-matrix support recovery."
     )
     parser.add_argument("--filename", type=str, default=None)
+    parser.add_argument("--method", type=str, default="diagonal", choices=["diagonal", "mwgp"])
     parser.add_argument("--num_simulations", type=int, default=10)
-    parser.add_argument("--p", type=int, default=5)
+    parser.add_argument("--p", type=int, default=20)
     parser.add_argument("--n", type=int, default=2000)
-    parser.add_argument("--num_rho", type=int, default=30)
-    parser.add_argument("--rho_min", type=float, default=2e-3)
-    parser.add_argument("--rho_max", type=float, default=3.0)
+    parser.add_argument("--num_rho", type=int, default=21)
+    parser.add_argument(
+        "--rho_decades", type=float, default=2.0,
+        help="Half-width of the rho grid, in decades either side of the "
+             "theoretical rate sqrt(log p / n). Default: 2.0.",
+    )
+    parser.add_argument(
+        "--rho_min", type=float, default=None,
+        help="Absolute grid start, overriding --rho_decades. Requires --rho_max.",
+    )
+    parser.add_argument(
+        "--rho_max", type=float, default=None,
+        help="Absolute grid end, overriding --rho_decades. Requires --rho_min.",
+    )
     args = parser.parse_args()
 
     p, n = args.p, args.n
@@ -115,7 +131,18 @@ def main():
     true_pos_mask = Theta_true[iu] != 0
     true_neg_mask = ~true_pos_mask
 
-    rho_grid = np.logspace(np.log10(args.rho_min), np.log10(args.rho_max), args.num_rho)
+    theoretical_rho = np.sqrt(np.log(p) / n)
+    if (args.rho_min is None) != (args.rho_max is None):
+        parser.error("--rho_min and --rho_max must be given together")
+    if args.rho_min is None:
+        rho_lo = theoretical_rho * 10.0 ** (-args.rho_decades)
+        rho_hi = theoretical_rho * 10.0 ** (+args.rho_decades)
+    else:
+        rho_lo, rho_hi = args.rho_min, args.rho_max
+    rho_grid = np.logspace(np.log10(rho_lo), np.log10(rho_hi), args.num_rho)
+
+    print(f"theoretical rho = sqrt(log({p}) / {n}) = {theoretical_rho:.5g}")
+    print(f"rho grid: {rho_lo:.5g} .. {rho_hi:.5g}, {args.num_rho} points, log-spaced")
 
     fp_asym = np.empty((args.num_simulations, args.num_rho))
     tp_asym = np.empty((args.num_simulations, args.num_rho))
@@ -130,22 +157,29 @@ def main():
     auc_t = np.empty(args.num_simulations)
     auc_ts = np.empty(args.num_simulations)
 
+    if args.method == "mwgp":
+        asym_algorithm = em.run_em_MWGP
+        asym_kwargs = {"n_iter": 50, 
+                              "verbose": True, 
+                              "warning": True, 
+                              "mcmc_samples": 100,
+                              "mcmc_thin": 1,
+                              "mcmc_warmup": 10,
+                              "proposal": "gig"}
+    elif args.method == "diagonal":
+        asym_algorithm = em.run_em_diagonal
+        asym_kwargs = {"n_iter": 200, "verbose": False}
+
     for sim in range(args.num_simulations):
         print(f"Replicate {sim + 1}/{args.num_simulations}")
 
         # Generate data from an independent model (noisy skewed Gaussian)
-        Y = dg.simulate_noisy_gaussian_data(n, p, Theta_true, skewness=0.3, outlier_frac=0.05, outlier_scale=4.0, noise_scale=0.1, seed=sim)
+        Y = dg.simulate_noisy_gaussian_data(n, p, Theta_true, skewness=0.8, outlier_frac=0.05, outlier_scale=4.0, noise_scale=0.1, seed=sim)
 
         # Asymmetric Alternative t-distribution model (EM_MWGP)
         fp_asym[sim], tp_asym[sim] = roc_curve_em(
-            Y, rho_grid, em.run_em_MWGP, true_pos_mask, true_neg_mask,
-            algorithm_kwargs={"n_iter": 200, 
-                              "verbose": False, 
-                              "warning": True, 
-                              "mcmc_samples": 200,
-                              "mcmc_thin": 1,
-                              "mcmc_warmup": 30,
-                              "proposal": "gig"}
+            Y, rho_grid, asym_algorithm, true_pos_mask, true_neg_mask,
+            algorithm_kwargs=asym_kwargs
         )
         auc_asym[sim] = auc_from_curve(fp_asym[sim], tp_asym[sim])
         
@@ -177,7 +211,7 @@ def main():
     fp_ts_mean, tp_ts_mean = fp_ts.mean(axis=0), tp_ts.mean(axis=0)
 
     print(f"\n(p={p}, n={n}) over {args.num_simulations} replicates")
-    print(f"  Asymmetric model (EM_MWGP): AUC = {auc_asym.mean():.3f} "
+    print(f"  Asymmetric model ({args.method}): AUC = {auc_asym.mean():.3f} "
           f"(SE {auc_asym.std(ddof=1) / np.sqrt(args.num_simulations):.3f})")
     print(f"  Classical t-model (TLASSO): AUC = {auc_t.mean():.3f} "
           f"(SE {auc_t.std(ddof=1) / np.sqrt(args.num_simulations):.3f})")
@@ -204,6 +238,18 @@ def main():
         fp_ts_mean, tp_ts_mean, color=COLOR_TS, linewidth=2, linestyle="-.",
         label=f"Alternative t-model, avg AUC={auc_ts.mean():.3f}",
     )
+    # theoretical rho is the midpoint of the centred grid
+    i_star = args.num_rho // 2
+    for fp_mean, tp_mean, color in (
+        (fp_asym_mean, tp_asym_mean, COLOR_ASYM),
+        (fp_ggm_mean, tp_ggm_mean, COLOR_GGM),
+        (fp_t_mean, tp_t_mean, COLOR_T),
+        (fp_ts_mean, tp_ts_mean, COLOR_TS),
+    ):
+        ax.plot(fp_mean[i_star], tp_mean[i_star], "o", color=color, zorder=5)
+    ax.plot([], [], "o", color="#52514e",
+            label=r"$\rho=\sqrt{\log p\,/\,n}$" + f" = {theoretical_rho:.3g}")
+
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.set_xlabel("false positive rate (1 - specificity)")
@@ -224,6 +270,7 @@ def main():
         "n": n,
         "method": "EM_MWGP",
         "rho_grid": rho_grid.tolist(),
+        "theoretical_rho": float(theoretical_rho),
         "asym": {
             "fp_mean": fp_asym_mean.tolist(),
             "tp_mean": tp_asym_mean.tolist(),
@@ -235,6 +282,18 @@ def main():
             "tp_mean": tp_ggm_mean.tolist(),
             "auc_mean": float(auc_ggm.mean()),
             "auc_se": float(auc_ggm.std(ddof=1) / np.sqrt(args.num_simulations)),
+        },
+        "t": {
+            "fp_mean": fp_t_mean.tolist(),
+            "tp_mean": tp_t_mean.tolist(),
+            "auc_mean": float(auc_t.mean()),
+            "auc_se": float(auc_t.std(ddof=1) / np.sqrt(args.num_simulations)),
+        },
+        "ts": {
+            "fp_mean": fp_ts_mean.tolist(),
+            "tp_mean": tp_ts_mean.tolist(),
+            "auc_mean": float(auc_ts.mean()),
+            "auc_se": float(auc_ts.std(ddof=1) / np.sqrt(args.num_simulations)),
         },
     }
     

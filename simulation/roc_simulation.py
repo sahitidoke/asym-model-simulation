@@ -28,6 +28,7 @@ from simulation import simulation_data_generator as dg
 rng = np.random.default_rng()
 
 COLOR_ASYM = "#2a78d6"
+COLOR_EM_DIAG = "#f5239a"
 COLOR_GGM = "#e34948"
 COLOR_T = "#f5a623"
 COLOR_TS = "#23f57e"
@@ -144,31 +145,21 @@ def main():
     print(f"theoretical rho = sqrt(log({p}) / {n}) = {theoretical_rho:.5g}")
     print(f"rho grid: {rho_lo:.5g} .. {rho_hi:.5g}, {args.num_rho} points, log-spaced")
 
-    fp_asym = np.empty((args.num_simulations, args.num_rho))
-    tp_asym = np.empty((args.num_simulations, args.num_rho))
+    fp_mwgp = np.empty((args.num_simulations, args.num_rho))
+    tp_mwgp = np.empty((args.num_simulations, args.num_rho))
+    fp_em_diag = np.empty((args.num_simulations, args.num_rho))
+    tp_em_diag = np.empty((args.num_simulations, args.num_rho))
     fp_ggm = np.empty((args.num_simulations, args.num_rho))
     tp_ggm = np.empty((args.num_simulations, args.num_rho))
     fp_t = np.empty((args.num_simulations, args.num_rho))
     tp_t = np.empty((args.num_simulations, args.num_rho))
     fp_ts = np.empty((args.num_simulations, args.num_rho))
     tp_ts = np.empty((args.num_simulations, args.num_rho))
-    auc_asym = np.empty(args.num_simulations)
+    auc_mwgp = np.empty(args.num_simulations)
+    auc_em_diag = np.empty(args.num_simulations)
     auc_ggm = np.empty(args.num_simulations)
     auc_t = np.empty(args.num_simulations)
     auc_ts = np.empty(args.num_simulations)
-
-    if args.method == "mwgp":
-        asym_algorithm = em.run_em_MWGP
-        asym_kwargs = {"n_iter": 50, 
-                              "verbose": True, 
-                              "warning": True, 
-                              "mcmc_samples": 100,
-                              "mcmc_thin": 1,
-                              "mcmc_warmup": 10,
-                              "proposal": "gig"}
-    elif args.method == "diagonal":
-        asym_algorithm = em.run_em_diagonal
-        asym_kwargs = {"n_iter": 200, "verbose": False}
 
     for sim in range(args.num_simulations):
         print(f"Replicate {sim + 1}/{args.num_simulations}")
@@ -177,12 +168,25 @@ def main():
         Y = dg.simulate_noisy_gaussian_data(n, p, Theta_true, skewness=0.8, outlier_frac=0.05, outlier_scale=4.0, noise_scale=0.1, seed=sim)
 
         # Asymmetric Alternative t-distribution model (EM_MWGP)
-        fp_asym[sim], tp_asym[sim] = roc_curve_em(
-            Y, rho_grid, asym_algorithm, true_pos_mask, true_neg_mask,
-            algorithm_kwargs=asym_kwargs
+        fp_mwgp[sim], tp_mwgp[sim] = roc_curve_em(
+            Y, rho_grid, em.run_em_MWGP, true_pos_mask, true_neg_mask,
+            algorithm_kwargs={"n_iter": 50, 
+                              "verbose": True, 
+                              "warning": True, 
+                              "mcmc_samples": 100,
+                              "mcmc_thin": 1,
+                              "mcmc_warmup": 10,
+                              "proposal": "gig"}
         )
-        auc_asym[sim] = auc_from_curve(fp_asym[sim], tp_asym[sim])
-        
+        auc_mwgp[sim] = auc_from_curve(fp_mwgp[sim], tp_mwgp[sim])
+
+        # Asymmetric Alternative t-distribution model (EM_DIAGONAL)
+        fp_em_diag[sim], tp_em_diag[sim] = roc_curve_em(
+            Y, rho_grid, em.run_em_diagonal, true_pos_mask, true_neg_mask,
+            algorithm_kwargs={"n_iter": 200, "verbose": False}
+        )
+        auc_em_diag[sim] = auc_from_curve(fp_em_diag[sim], tp_em_diag[sim])
+
         # Classical t-distribution model (run_tlasso)
         fp_t[sim], tp_t[sim] = roc_curve_em(
             Y, rho_grid, tlasso.run_tlasso, true_pos_mask, true_neg_mask,
@@ -205,26 +209,33 @@ def main():
         auc_ggm[sim] = auc_from_curve(fp_ggm[sim], tp_ggm[sim])
 
     # Average the ROC curves across replicates and compute mean AUCs
-    fp_asym_mean, tp_asym_mean = fp_asym.mean(axis=0), tp_asym.mean(axis=0)
+    fp_mwgp_mean, tp_mwgp_mean = fp_mwgp.mean(axis=0), tp_mwgp.mean(axis=0)
+    fp_em_diag_mean, tp_em_diag_mean = fp_em_diag.mean(axis=0), tp_em_diag.mean(axis=0)
     fp_ggm_mean, tp_ggm_mean = fp_ggm.mean(axis=0), tp_ggm.mean(axis=0)
     fp_t_mean, tp_t_mean = fp_t.mean(axis=0), tp_t.mean(axis=0)
     fp_ts_mean, tp_ts_mean = fp_ts.mean(axis=0), tp_ts.mean(axis=0)
 
     print(f"\n(p={p}, n={n}) over {args.num_simulations} replicates")
-    print(f"  Asymmetric model ({args.method}): AUC = {auc_asym.mean():.3f} "
-          f"(SE {auc_asym.std(ddof=1) / np.sqrt(args.num_simulations):.3f})")
+    print(f"  Asymmetric model ({args.method}): AUC = {auc_mwgp.mean():.3f} "
+          f"(SE {auc_mwgp.std(ddof=1) / np.sqrt(args.num_simulations):.3f})")
     print(f"  Classical t-model (TLASSO): AUC = {auc_t.mean():.3f} "
           f"(SE {auc_t.std(ddof=1) / np.sqrt(args.num_simulations):.3f})")
     print(f"  Alternative t-model (TSTAR_VARLASSO): AUC = {auc_ts.mean():.3f} "
           f"(SE {auc_ts.std(ddof=1) / np.sqrt(args.num_simulations):.3f})")
+    print(f"  Asymmetric diagonal model: AUC = {auc_em_diag.mean():.3f} "
+          f"(SE {auc_em_diag.std(ddof=1) / np.sqrt(args.num_simulations):.3f})")
     print(f"  Naive Gaussian glasso (GGM): AUC = {auc_ggm.mean():.3f} "
           f"(SE {auc_ggm.std(ddof=1) / np.sqrt(args.num_simulations):.3f})")
 
     fig, ax = plt.subplots(figsize=(6, 6))
     ax.plot([0, 1], [0, 1], linestyle="--", linewidth=1, color=COLOR_CHANCE)
     ax.plot(
-        fp_asym_mean, tp_asym_mean, color=COLOR_ASYM, linewidth=2,
-        label=f"Asym. model, avg AUC={auc_asym.mean():.3f}",
+        fp_mwgp_mean, tp_mwgp_mean, color=COLOR_ASYM, linewidth=2,
+        label=f"Asym. model mcmc, avg AUC={auc_mwgp.mean():.3f}",
+    )
+    ax.plot(
+        fp_em_diag_mean, tp_em_diag_mean, color=COLOR_EM_DIAG, linewidth=2,
+        label=f"Asym. diag. model, avg AUC={auc_em_diag.mean():.3f}",
     )
     ax.plot(
         fp_ggm_mean, tp_ggm_mean, color=COLOR_GGM, linewidth=2, linestyle="-.",
@@ -241,10 +252,11 @@ def main():
     # theoretical rho is the midpoint of the centred grid
     i_star = args.num_rho // 2
     for fp_mean, tp_mean, color in (
-        (fp_asym_mean, tp_asym_mean, COLOR_ASYM),
+        (fp_mwgp_mean, tp_mwgp_mean, COLOR_ASYM),
         (fp_ggm_mean, tp_ggm_mean, COLOR_GGM),
         (fp_t_mean, tp_t_mean, COLOR_T),
         (fp_ts_mean, tp_ts_mean, COLOR_TS),
+        (fp_em_diag_mean, tp_em_diag_mean, COLOR_EM_DIAG),
     ):
         ax.plot(fp_mean[i_star], tp_mean[i_star], "o", color=color, zorder=5)
     ax.plot([], [], "o", color="#52514e",
@@ -271,11 +283,17 @@ def main():
         "method": "EM_MWGP",
         "rho_grid": rho_grid.tolist(),
         "theoretical_rho": float(theoretical_rho),
-        "asym": {
-            "fp_mean": fp_asym_mean.tolist(),
-            "tp_mean": tp_asym_mean.tolist(),
-            "auc_mean": float(auc_asym.mean()),
-            "auc_se": float(auc_asym.std(ddof=1) / np.sqrt(args.num_simulations)),
+        "asym_mwgp": {
+            "fp_mean": fp_mwgp_mean.tolist(),
+            "tp_mean": tp_mwgp_mean.tolist(),
+            "auc_mean": float(auc_mwgp.mean()),
+            "auc_se": float(auc_mwgp.std(ddof=1) / np.sqrt(args.num_simulations)),
+        },
+        "asym_em_diag": {
+            "fp_mean": fp_em_diag_mean.tolist(),
+            "tp_mean": tp_em_diag_mean.tolist(),
+            "auc_mean": float(auc_em_diag.mean()),
+            "auc_se": float(auc_em_diag.std(ddof=1) / np.sqrt(args.num_simulations)),
         },
         "ggm": {
             "fp_mean": fp_ggm_mean.tolist(),

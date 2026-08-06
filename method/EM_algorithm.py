@@ -1163,7 +1163,7 @@ def run_em_MWGP(
 
         # =============== Update Theta via graphical lasso ============
         try:
-            _, Theta_new = graphical_lasso(S_tau, alpha=rho, max_iter=20000)
+            _, Theta_new = graphical_lasso(S_tau, alpha=rho, max_iter=200)
         except Exception as e:
             if warning:
                 print(

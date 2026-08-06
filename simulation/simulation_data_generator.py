@@ -1,6 +1,6 @@
 import numpy as np
 
-def simulate_aat_data(n, p, mu, eta, nu, Theta_true, rng):
+def simulate_aat_data(n, p, Theta_true, mu, eta, nu, rng):
     Psi_true = np.linalg.inv(Theta_true)
     alpha = 2.0 / nu
     beta = 2.0 / nu

@@ -3,7 +3,7 @@ Mean ROC/AUC curves for precision-matrix support recovery, in the style of
 Fig. 1-3 / Table 1 of docs/sggm.pdf.
 
 Running instructions (from the repository root):
-    python -m simulation.roc_simulation --num_simulations 20 --filename five_methods_comparison
+    python -m simulation.roc_simulation --num_simulations 50 --filename five_methods_comparison
 
 For each replicate: simulate Y from the true model, run one EM_MWGP fit to
 obtain the expected sufficient statistic S_tau from its MCMC E-step, then
@@ -108,7 +108,7 @@ def main():
     parser.add_argument("--num_simulations", type=int, default=50)
     parser.add_argument("--p", type=int, default=20)
     parser.add_argument("--n", type=int, default=2000)
-    parser.add_argument("--num_rho", type=int, default=21)
+    parser.add_argument("--num_rho", type=int, default=21) 
     parser.add_argument(
         "--rho_decades", type=float, default=2.0,
         help="Half-width of the rho grid, in decades either side of the "
@@ -217,12 +217,12 @@ def main():
     print(f"\n(p={p}, n={n}) over {args.num_simulations} replicates")
     print(f"  Asymmetric model (MWGP): AUC = {auc_mwgp.mean():.3f} "
           f"(SE {auc_mwgp.std(ddof=1) / np.sqrt(args.num_simulations):.3f})")
+    print(f"  Asymmetric model (Diagonal): AUC = {auc_em_diag.mean():.3f} "
+          f"(SE {auc_em_diag.std(ddof=1) / np.sqrt(args.num_simulations):.3f})")
     print(f"  Classical t-model (TLASSO): AUC = {auc_t.mean():.3f} "
           f"(SE {auc_t.std(ddof=1) / np.sqrt(args.num_simulations):.3f})")
     print(f"  Alternative t-model (TSTAR_VARLASSO): AUC = {auc_ts.mean():.3f} "
           f"(SE {auc_ts.std(ddof=1) / np.sqrt(args.num_simulations):.3f})")
-    print(f"  Asymmetric model (Diagonal): AUC = {auc_em_diag.mean():.3f} "
-          f"(SE {auc_em_diag.std(ddof=1) / np.sqrt(args.num_simulations):.3f})")
     print(f"  Naive Gaussian glasso (GGM): AUC = {auc_ggm.mean():.3f} "
           f"(SE {auc_ggm.std(ddof=1) / np.sqrt(args.num_simulations):.3f})")
 

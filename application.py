@@ -12,9 +12,11 @@ parser = argparse.ArgumentParser(
 
 parser.add_argument(
     "--standardize",
-    type = bool,
-    default = False,
-    help="Standardize the data before running the algorithm. Default: False.",
+    type=bool,
+    help="Standardize the data before running the algorithm. Default: False. "
+         "rho = sqrt(log p / n) is only scale-free on standardized data: on raw "
+         "SNP500 log-returns it is ~700x the largest off-diagonal covariance and "
+         "glasso returns an empty graph.",
 )
 
 parser.add_argument(
@@ -45,7 +47,7 @@ args = parser.parse_args()
 if args.database == "sachs_min":
     Y, NAMES = sachs_min.load_control()
 elif args.database == "SNP500":
-    Y, NAMES = SNP500.load_snp_500(50)
+    Y, NAMES = SNP500.load_snp_500()
 
 # Standardize data
 if (args.standardize):
@@ -53,9 +55,9 @@ if (args.standardize):
 
 # Run algorithm
 n,p = Y.shape
-if (args.method == "DIAGONAL"):
+if (args.method == "diagonal"):
     fitting_algorithm = em.run_em_diagonal
-elif (args.method == "MWGP"):   
+elif (args.method == "mwgp"):   
     fitting_algorithm = em.run_em_MWGP
 
 # Select RHO using StARS
@@ -80,13 +82,6 @@ results = fitting_algorithm(
     Y,
     n_iter=200,
     rho=RHO,
-    verbose=True,
-    warning=True,
-    mcmc_samples=200,
-    mcmc_thin=1,
-    mcmc_warmup=30,
-    random_state=42,
-    proposal="gig",
 )
 
 # Save results (convert ndarrays to lists so the dict is JSON-serializable)

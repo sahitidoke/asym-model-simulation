@@ -2,6 +2,7 @@ import numpy as np
 import os
 from matplotlib import pyplot as plt
 from scipy.stats import norm, skew
+from scipy.optimize import brentq
 
 def simulate_aat_data(n, p, Theta_true, mu, eta, nu, rng):
     Psi_true = np.linalg.inv(Theta_true)
@@ -76,6 +77,66 @@ def simulate_noisy_gaussian_data(n, p, Theta_true,
                                  size=(n, p))
         Y = Y + noise
     
+    return Y
+
+"""
+Contaminated-normal data generator.
+
+Finegold & Drton (2011), "Robust graphical modeling of gene networks using
+classical and alternative t-distributions", AOAS 5(2), Section 6.1.
+"""
+
+def make_true_theta(p, prob=0.01, min_eig=0.6, rng=None):
+    """Random sparse precision matrix.
+
+    (a) lower-triangular entries iid in {-1, 0, 1} w.p. {1%, 98%, 1%}
+    (b) symmetrize
+    (c) theta_kk = 1 + h_k  (h_k = # nonzeros in row k)
+    then shrink the diagonal by the largest common factor keeping
+    lambda_min(Theta) == min_eig.
+    """
+    rng = np.random.default_rng(rng)
+
+    off = np.zeros((p, p))
+    il = np.tril_indices(p, -1)
+    off[il] = rng.choice([-1.0, 0.0, 1.0], size=il[0].size,
+                         p=[prob, 1 - 2 * prob, prob])
+    off = off + off.T
+
+    h = (off != 0).sum(axis=1)
+    d = 1.0 + h
+
+    def lmin(c):
+        return np.linalg.eigvalsh(off + c * np.diag(d)).min()
+
+    # c=1 -> lambda_min >= 1 (diagonal dominance); c=0 -> lambda_min <= 0
+    c = brentq(lambda c: lmin(c) - min_eig, 1e-10, 1.0, xtol=1e-12)
+    return off + c * np.diag(d)
+
+
+def simulate_contaminated_normal_data(n, p, Theta_true, eps=0.02,
+                            contam_var=0.2, mult=2.5, random_sign=False,
+                            min_eig=0.6, prob=0.01, rng=None):
+    """N_p(0, theta^-1) sample with a fraction `eps` of the individual
+    ENTRIES replaced by N(mu_star, contam_var) draws, where
+    mu_star = mult * max(diag(theta^-1))."""
+    rng = np.random.default_rng(rng)
+    p = Theta_true.shape[0]
+
+    sigma = np.linalg.inv(Theta_true)
+    sigma = (sigma + sigma.T) / 2
+    L = np.linalg.cholesky(sigma)
+
+    Y = rng.standard_normal((n, p)) @ L.T
+
+    mu_star = mult * np.max(np.diag(sigma))
+    k = int(round(eps * n * p))
+    idx = rng.choice(n * p, size=k, replace=False)
+    vals = rng.normal(mu_star, np.sqrt(contam_var), size=k)
+    if random_sign:
+        vals *= rng.choice([-1.0, 1.0], size=k)
+    Y.flat[idx] = vals
+
     return Y
 
 if __name__ == "__main__":

@@ -22,10 +22,7 @@ from sklearn.covariance import graphical_lasso
 from matplotlib import pyplot as plt
 
 from method import EM_algorithm as em, tlasso
-from simulation.simulation import make_true_theta
 from simulation import simulation_data_generator as dg
-
-rng = np.random.default_rng()
 
 COLOR_ASYM = "#2a78d6"
 COLOR_EM_DIAG = "#f5239a"
@@ -115,7 +112,7 @@ def main():
     args = parser.parse_args()
 
     p, n = args.p, args.n
-    Theta_true = make_true_theta(p, rng=rng)
+    Theta_true = dg.make_true_theta(p)
 
     iu = np.triu_indices(p, k=1)
     true_pos_mask = Theta_true[iu] != 0
@@ -148,7 +145,7 @@ def main():
         print(f"Replicate {sim + 1}/{args.num_simulations}")
 
         # Generate data from an independent model (noisy skewed Gaussian)
-        Y = dg.simulate_noisy_gaussian_data(n, p, Theta_true, skewness=0.8, outlier_frac=0.05, outlier_scale=4.0, noise_scale=0.1, seed=sim)
+        Y = dg.simulate_contaminated_normal_data(n, p, Theta_true)
 
         # Asymmetric Alternative t-distribution model (EM_MWGP)
         fp_mwgp[sim], tp_mwgp[sim] = roc_curve_em(

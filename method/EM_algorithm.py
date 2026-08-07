@@ -120,9 +120,13 @@ def run_em_diagonal(Y, n_iter=60, rho=0.05, init= None, verbose=True):
 
         S_tau += 1e-10 * np.eye(p) 
         
-        # Glasso step to estimate Theta
+        # Glasso step to estimate Theta. sklearn penalizes off-diagonals only;
+        # adding rho*I recovers the fully penalized objective, since
+        # tr(S Theta) + rho * sum_j theta_jj = tr((S + rho I) Theta).
         try:
-            cov_glasso, Theta_new = graphical_lasso(S_tau, alpha=rho, max_iter=200)
+            cov_glasso, Theta_new = graphical_lasso(
+                S_tau + rho * np.eye(p), alpha=rho, max_iter=200
+            )
         except Exception as e:
             if verbose:
                 print(f"  [warn] glasso failed at iter {it}: {e}; keeping previous Theta")
@@ -261,11 +265,13 @@ def run_em_exact(Y, n_iter=60, rho=0.05, verbose=True, err=1e-3, run_until_conve
 
         S_tau += 1e-10 * np.eye(p) 
         
-        # Glasso step to estimate Theta
+        # Glasso step to estimate Theta. sklearn penalizes off-diagonals only;
+        # adding rho*I recovers the fully penalized objective, since
+        # tr(S Theta) + rho * sum_j theta_jj = tr((S + rho I) Theta).
         try:
-            _, Theta_new = graphical_lasso(S_tau, 
-                                           alpha=rho, 
-                                           # alpha=2 * rho / n, 
+            _, Theta_new = graphical_lasso(S_tau + rho * np.eye(p),
+                                           alpha=rho,
+                                           # alpha=2 * rho / n,
                                            max_iter=1000)
         except Exception as e:
             if verbose:
@@ -655,12 +661,14 @@ def run_em_MWG(
         )
 
         # ==========================================================
-        # Update Theta using graphical lasso
+        # Update Theta using graphical lasso. sklearn penalizes off-diagonals
+        # only; adding rho*I recovers the fully penalized objective, since
+        # tr(S Theta) + rho * sum_j theta_jj = tr((S + rho I) Theta).
         # ==========================================================
 
         try:
             _, Theta_new = graphical_lasso(
-                S_tau,
+                S_tau + rho * np.eye(p),
                 alpha=rho,
                 max_iter=1000,
             )
@@ -1167,8 +1175,13 @@ def run_em_MWGP(
         S_tau = (S_tau + S_tau.T) / 2.0 + 1e-10 * np.eye(p)
 
         # =============== Update Theta via graphical lasso ============
+        # sklearn penalizes off-diagonals only; adding rho*I recovers the fully
+        # penalized objective, since
+        # tr(S Theta) + rho * sum_j theta_jj = tr((S + rho I) Theta).
         try:
-            _, Theta_new = graphical_lasso(S_tau, alpha=rho, max_iter=200)
+            _, Theta_new = graphical_lasso(
+                S_tau + rho * np.eye(p), alpha=rho, max_iter=200
+            )
         except Exception as e:
             if warning:
                 print(
@@ -1362,8 +1375,13 @@ def run_em_importance(
         ) / n
         S_tau = (S_tau + S_tau.T) / 2.0 + 1e-10 * np.eye(p)
 
+        # sklearn penalizes off-diagonals only; adding rho*I recovers the fully
+        # penalized objective, since
+        # tr(S Theta) + rho * sum_j theta_jj = tr((S + rho I) Theta).
         try:
-            _, Theta_new = graphical_lasso(S_tau, alpha=rho, max_iter=1000)
+            _, Theta_new = graphical_lasso(
+                S_tau + rho * np.eye(p), alpha=rho, max_iter=1000
+            )
         except Exception as e:
             if verbose:
                 print(

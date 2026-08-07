@@ -77,12 +77,14 @@ def roc_curve_glasso(Y, rho_grid, true_pos_mask, true_neg_mask, glasso_kwargs=No
     S = np.cov(Y, rowvar=False) + 1e-10 * np.eye(Y.shape[1])
     fp = np.empty(len(rho_grid))
     tp = np.empty(len(rho_grid))
-    Theta_prev = np.eye(Y.shape[1])
+    
+    p = Y.shape[1]
+    Theta_prev = np.eye(p)
     print(f"Running graphical_lasso over {len(rho_grid)} rho values...")
     for i in range(len(rho_grid)):
         print(f"  rho={rho_grid[i]:.5f} ({i+1}/{len(rho_grid)})")
         try:
-            _, Theta_hat = graphical_lasso(S, alpha=rho_grid[i], **kwargs)
+            _, Theta_hat = graphical_lasso(S + rho_grid[i] * np.eye(p), alpha=rho_grid[i], **kwargs)
         except Exception:
             Theta_hat = Theta_prev
         Theta_prev = Theta_hat
@@ -105,7 +107,9 @@ def main():
     parser.add_argument("--num_simulations", type=int, default=50)
     parser.add_argument("--p", type=int, default=20)
     parser.add_argument("--n", type=int, default=2000)
-    parser.add_argument("--num_rho", type=int, default=21) 
+    parser.add_argument("--rho_min", type=int, default=2e-3) 
+    parser.add_argument("--rho_max", type=int, default=3) 
+    parser.add_argument("--num_rho", type=int, default=30) 
     parser.add_argument(
         "--width", type=float, default=0.1,
     )
@@ -120,7 +124,7 @@ def main():
 
     theoretical_rho = np.sqrt(np.log(p) / n)
     # make a evenly spaced grid centered at theoretical rho with half length width
-    rho_grid = np.logspace(theoretical_rho - args.width, theoretical_rho + args.width, args.num_rho)
+    rho_grid = np.logspace(np.log10(args.rho_min), np.log10(args.rho_max), args.num_rho)
 
     print(f"theoretical rho = sqrt(log({p}) / {n}) = {theoretical_rho:.5g}")
     print(f"rho grid: {rho_grid}")
@@ -147,6 +151,19 @@ def main():
         # Generate data from an independent model (noisy skewed Gaussian)
         Y = dg.simulate_contaminated_normal_data(n, p, Theta_true)
 
+        # Classical t-distribution model (run_tlasso)
+        fp_t[sim], tp_t[sim] = roc_curve_em(
+            Y, rho_grid, tlasso.run_tlasso, true_pos_mask, true_neg_mask,
+            algorithm_kwargs={"n_iter": 200, "verbose": False}
+        )
+        auc_t[sim] = auc_from_curve(fp_t[sim], tp_t[sim])
+        
+        # Alternative t-distribution model (run_tstar_varlasso)
+        fp_ts[sim], tp_ts[sim] = roc_curve_em(
+            Y, rho_grid, tlasso.run_tstar_varlasso, true_pos_mask, true_neg_mask,
+            algorithm_kwargs={"n_iter": 200, "verbose": False}
+        )
+        
         # Asymmetric Alternative t-distribution model (EM_MWGP)
         fp_mwgp[sim], tp_mwgp[sim] = roc_curve_em(
             Y, rho_grid, em.run_em_MWGP, true_pos_mask, true_neg_mask,
@@ -167,18 +184,7 @@ def main():
         )
         auc_em_diag[sim] = auc_from_curve(fp_em_diag[sim], tp_em_diag[sim])
 
-        # Classical t-distribution model (run_tlasso)
-        fp_t[sim], tp_t[sim] = roc_curve_em(
-            Y, rho_grid, tlasso.run_tlasso, true_pos_mask, true_neg_mask,
-            algorithm_kwargs={"n_iter": 200, "verbose": False}
-        )
-        auc_t[sim] = auc_from_curve(fp_t[sim], tp_t[sim])
-        
-        # Alternative t-distribution model (run_tstar_varlasso)
-        fp_ts[sim], tp_ts[sim] = roc_curve_em(
-            Y, rho_grid, tlasso.run_tstar_varlasso, true_pos_mask, true_neg_mask,
-            algorithm_kwargs={"n_iter": 200, "verbose": False}
-        )
+
         auc_ts[sim] = auc_from_curve(fp_ts[sim], tp_ts[sim])
 
         # Naive Gaussian graphical lasso baseline

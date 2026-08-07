@@ -34,15 +34,15 @@ def run_tlasso(Y, nu=3.0, n_iter=60, rho=0.05, init = None, verbose=True):
         S_tau = (S_tau + S_tau.T) / 2.0
         S_tau += 1e-10 * np.eye(p)
         
-        off_diag = ~np.eye(p, dtype=bool)
-        print(f"max|S_ij| (off-diag): {np.max(np.abs(S_tau[off_diag]))}, rho: {rho}")
+        # off_diag = ~np.eye(p, dtype=bool)
+        # print(f"max|S_ij| (off-diag): {np.max(np.abs(S_tau[off_diag]))}, rho: {rho}")
 
         # Glasso step to estimate Theta. sklearn penalizes off-diagonals only;
         # adding rho*I recovers the paper's fully penalized objective, since
         # tr(S Theta) + rho * sum_j theta_jj = tr((S + rho I) Theta).
         try:
             cov_glasso, Theta_new = graphical_lasso(
-                S_tau + rho * np.eye(p), alpha=rho, max_iter=200
+                S_tau + rho * np.eye(p), alpha=rho, max_iter=200, tol=1e-3
             )
         except Exception as e:
             if verbose:
@@ -111,7 +111,7 @@ def run_tstar_varlasso(Y, nu=3.0, n_iter=60, rho=0.05, init=None, verbose=True):
         # tr(S Theta) + rho * sum_j theta_jj = tr((S + rho I) Theta).
         try:
             cov_glasso, Theta_new = graphical_lasso(
-                S_tau + rho * np.eye(p), alpha=rho, max_iter=200
+                S_tau + rho * np.eye(p), alpha=rho, max_iter=200, tol=1e-2
             )
         except Exception as e:
             if verbose:

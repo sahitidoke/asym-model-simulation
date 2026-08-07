@@ -57,7 +57,12 @@ def run_em_diagonal(Y, n_iter=60, rho=0.05, init= None, verbose=True):
         theta_bar = 1.0 / Y.var(axis=0)    
         Theta = np.diag(theta_bar)    
     else:
-        mu, nu, eta, Theta = init["mu"],init["nu"],init["eta"],init["Theta"]
+        # nu/eta are tail-shape nuisance parameters and fall back to the
+        # cold-start values when absent, so a warm-started rho sweep can carry
+        # mu/Theta forward without letting nu ratchet down across steps.
+        mu, Theta = init["mu"], init["Theta"]
+        nu = init.get("nu", np.full(p, 0.5))
+        eta = init.get("eta", np.full(p, 0.5) / nu)
         theta_bar = np.diag(Theta)
 
 
@@ -120,12 +125,15 @@ def run_em_diagonal(Y, n_iter=60, rho=0.05, init= None, verbose=True):
 
         S_tau += 1e-10 * np.eye(p) 
         
+        # off_diag = ~np.eye(p, dtype=bool)
+        # print(f"max|S_ij| (off-diag): {np.max(np.abs(S_tau[off_diag]))}, rho: {rho}")
+        
         # Glasso step to estimate Theta. sklearn penalizes off-diagonals only;
         # adding rho*I recovers the fully penalized objective, since
         # tr(S Theta) + rho * sum_j theta_jj = tr((S + rho I) Theta).
         try:
             cov_glasso, Theta_new = graphical_lasso(
-                S_tau + rho * np.eye(p), alpha=rho, max_iter=200
+                S_tau + rho * np.eye(p), alpha=rho, max_iter=200, tol=1e-3
             )
         except Exception as e:
             if verbose:
@@ -1107,7 +1115,16 @@ def run_em_MWGP(
         eta = gamma / nu
         Theta = np.diag(1.0 / Y.var(axis=0))
     else:
-        Theta, mu, nu, eta = init["Theta"], init["mu"], init["nu"], init["eta"]
+        # nu/eta are tail-shape nuisance parameters and fall back to the
+        # cold-start values when absent, so a warm-started rho sweep can carry
+        # mu/Theta forward without letting nu ratchet down across steps.
+        Theta, mu = init["Theta"], init["mu"]
+        nu = init.get("nu", np.full(p, 0.5))
+        if "eta" in init:
+            eta = init["eta"]
+        else:
+            scale = np.maximum(Y.std(axis=0, ddof=1), 1e-8)
+            eta = 0.1 * scale * np.tanh(skew(Y, axis=0, bias=False)) / nu
         gamma = nu * eta
         mcmc_burn = 50
 
@@ -1180,7 +1197,7 @@ def run_em_MWGP(
         # tr(S Theta) + rho * sum_j theta_jj = tr((S + rho I) Theta).
         try:
             _, Theta_new = graphical_lasso(
-                S_tau + rho * np.eye(p), alpha=rho, max_iter=200
+                S_tau + rho * np.eye(p), alpha=rho, max_iter=200, tol=1e-3
             )
         except Exception as e:
             if warning:

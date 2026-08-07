@@ -31,6 +31,25 @@ COLOR_T = "#f5a623"
 COLOR_TS = "#23f57e"
 COLOR_CHANCE = "#c3c2b7"
 
+def rho_max(S):
+    A = np.abs(np.asarray(S, dtype=float)).copy()
+    np.fill_diagonal(A, 0.0)
+    return float(A.max())
+ 
+ 
+def make_rho_grid(S, n_rho=50, max_ratio = 1, min_ratio=0.05):
+    """Log-spaced, DESCENDING grid on [min_ratio * rho_max, rho_max].
+ 
+    Log spacing because edge count is roughly geometric in rho: linear
+    spacing wastes most points in the dense end where the ROC curve barely
+    moves. Descending so warm starts run sparse -> dense, which is the
+    numerically stable direction when p > n.
+    """
+    rmax = rho_max(S)
+    if not np.isfinite(rmax) or rmax <= 0:
+        raise ValueError("rho_max is not positive; check the input matrix.")
+    return np.logspace(np.log10(max_ratio * rmax), np.log10(min_ratio * rmax), n_rho)
+
 def edge_confusion(Theta_hat, true_pos_mask, true_neg_mask, tol=1e-8):
     iu = np.triu_indices(Theta_hat.shape[0], k=1)
     est_edges = np.abs(Theta_hat[iu]) > tol
@@ -43,26 +62,43 @@ def roc_curve_em(
     Y, rho_grid, algorithm, true_pos_mask, true_neg_mask,
     algorithm_kwargs=None, rho_name="rho", theta_key="Theta",
 ):
-    """Re-run the whole EM at each rho, sparsest first.
+    """Re-run the whole EM at each rho, warm-started, sparsest first.
 
     `algorithm_kwargs` holds whatever extra arguments the given algorithm takes
     (e.g. nu/n_iter for run_tlasso, n_burn/n_keep for run_em_MWGP); `rho_name`
     and `theta_key` cover algorithms that name the penalty or the returned
     precision matrix differently.
+
+    Each fit is initialized at the previous rho's mu and Theta. Only those two
+    are carried: nu/eta are tail-shape nuisance parameters, and handing them
+    forward lets nu ratchet down across the sweep until lam = -2/nu - 0.5 is
+    negative enough to overflow the Bessel terms in gig_moment.
+
+    These EM objectives are not convex, so warm starting changes the estimator
+    and not just the runtime: every point on the curve depends on the whole
+    path prefix, and the sweep must stay sparse -> dense for the results to be
+    reproducible.
     """
     kwargs = {} if algorithm_kwargs is None else dict(algorithm_kwargs)
     fp = np.empty(len(rho_grid))
     tp = np.empty(len(rho_grid))
     Theta_prev = np.eye(Y.shape[1])
+    prev = None
     print(f"Running {algorithm.__name__} over {len(rho_grid)} rho values...")
     for i in range(len(rho_grid)):
         print(f"  rho={rho_grid[i]:.5f} ({i+1}/{len(rho_grid)})")
-        try:
-            Theta_hat = algorithm(Y, **{rho_name: rho_grid[i]}, **kwargs)[theta_key]
-        except Exception:
-            Theta_hat = Theta_prev
+
+        res = algorithm(
+            Y, **{rho_name: rho_grid[i]}, **kwargs,
+            **({"init": prev} if prev is not None else {}),
+        )
+        Theta_hat = res[theta_key]
+        if np.all(np.isfinite(Theta_hat)):
+            prev = {"mu": res["mu"], "Theta": Theta_hat}
+
         Theta_prev = Theta_hat
         fp[i], tp[i] = edge_confusion(Theta_hat, true_pos_mask, true_neg_mask)
+        print(fp[i], tp[i])
     return fp, tp
 
 
@@ -124,10 +160,8 @@ def main():
 
     theoretical_rho = np.sqrt(np.log(p) / n)
     # make a evenly spaced grid centered at theoretical rho with half length width
-    rho_grid = np.logspace(np.log10(args.rho_min), np.log10(args.rho_max), args.num_rho)
 
     print(f"theoretical rho = sqrt(log({p}) / {n}) = {theoretical_rho:.5g}")
-    print(f"rho grid: {rho_grid}")
 
     fp_mwgp = np.empty((args.num_simulations, args.num_rho))
     tp_mwgp = np.empty((args.num_simulations, args.num_rho))
@@ -150,19 +184,30 @@ def main():
 
         # Generate data from an independent model (noisy skewed Gaussian)
         Y = dg.simulate_contaminated_normal_data(n, p, Theta_true)
+        S = np.cov(Y, rowvar=False)
+        rho_grid = make_rho_grid(S, n_rho = args.num_rho)
+        print(f"rho grid: {rho_grid}")
 
+        # Alternative t-distribution model (run_tstar_varlasso)
+        fp_ts[sim], tp_ts[sim] = roc_curve_em(
+            Y, rho_grid, tlasso.run_tstar_varlasso, true_pos_mask, true_neg_mask,
+            algorithm_kwargs={"n_iter": 200, "verbose": False}
+        )
+        auc_ts[sim] = auc_from_curve(fp_ts[sim], tp_ts[sim])
+        
+        # Asymmetric Alternative t-distribution model (EM_DIAGONAL)
+        fp_em_diag[sim], tp_em_diag[sim] = roc_curve_em(
+            Y, rho_grid, em.run_em_diagonal, true_pos_mask, true_neg_mask,
+            algorithm_kwargs={"n_iter": 200, "verbose": False}
+        )
+        auc_em_diag[sim] = auc_from_curve(fp_em_diag[sim], tp_em_diag[sim])
+        
         # Classical t-distribution model (run_tlasso)
         fp_t[sim], tp_t[sim] = roc_curve_em(
             Y, rho_grid, tlasso.run_tlasso, true_pos_mask, true_neg_mask,
             algorithm_kwargs={"n_iter": 200, "verbose": False}
         )
         auc_t[sim] = auc_from_curve(fp_t[sim], tp_t[sim])
-        
-        # Alternative t-distribution model (run_tstar_varlasso)
-        fp_ts[sim], tp_ts[sim] = roc_curve_em(
-            Y, rho_grid, tlasso.run_tstar_varlasso, true_pos_mask, true_neg_mask,
-            algorithm_kwargs={"n_iter": 200, "verbose": False}
-        )
         
         # Asymmetric Alternative t-distribution model (EM_MWGP)
         fp_mwgp[sim], tp_mwgp[sim] = roc_curve_em(
@@ -176,16 +221,6 @@ def main():
                               "proposal": "gig"}
         )
         auc_mwgp[sim] = auc_from_curve(fp_mwgp[sim], tp_mwgp[sim])
-
-        # Asymmetric Alternative t-distribution model (EM_DIAGONAL)
-        fp_em_diag[sim], tp_em_diag[sim] = roc_curve_em(
-            Y, rho_grid, em.run_em_diagonal, true_pos_mask, true_neg_mask,
-            algorithm_kwargs={"n_iter": 200, "verbose": False}
-        )
-        auc_em_diag[sim] = auc_from_curve(fp_em_diag[sim], tp_em_diag[sim])
-
-
-        auc_ts[sim] = auc_from_curve(fp_ts[sim], tp_ts[sim])
 
         # Naive Gaussian graphical lasso baseline
         fp_ggm[sim], tp_ggm[sim] = roc_curve_glasso(

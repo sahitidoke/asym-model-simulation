@@ -1,7 +1,7 @@
 import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
-import matplotlib.cm as cm
+from matplotlib import colormaps
   # Assuming application.py is in the same directory and contains the necessary functions
 
 def plot_precision_graph(
@@ -13,6 +13,7 @@ def plot_precision_graph(
     title="Precision Matrix Graph",
     seed=42,
     figsize=(10, 10),
+    filename = None
 ):
     p = precision_matrix.shape[0]
     if labels is None:
@@ -54,7 +55,7 @@ def plot_precision_graph(
             community_id[node] = cid
 
     n_comms = len(communities)
-    cmap = cm.get_cmap("tab20", n_comms)
+    cmap = colormaps["tab20"].resampled(n_comms)
     node_colors = [cmap(community_id.get(n, 0)) for n in G.nodes()]
 
     if k is None:
@@ -73,6 +74,10 @@ def plot_precision_graph(
     plt.title(title)
     plt.axis("off")
     plt.tight_layout()
-    plt.show()
+    
+    if filename is not None:
+        plt.savefig(filename, bbox_inches="tight", dpi=300)
+        print(f"Graph saved to {filename}")
 
+    plt.show()
     return G, community_id

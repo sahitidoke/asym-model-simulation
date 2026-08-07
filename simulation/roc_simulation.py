@@ -110,17 +110,7 @@ def main():
     parser.add_argument("--n", type=int, default=2000)
     parser.add_argument("--num_rho", type=int, default=21) 
     parser.add_argument(
-        "--rho_decades", type=float, default=2.0,
-        help="Half-width of the rho grid, in decades either side of the "
-             "theoretical rate sqrt(log p / n). Default: 2.0.",
-    )
-    parser.add_argument(
-        "--rho_min", type=float, default=None,
-        help="Absolute grid start, overriding --rho_decades. Requires --rho_max.",
-    )
-    parser.add_argument(
-        "--rho_max", type=float, default=None,
-        help="Absolute grid end, overriding --rho_decades. Requires --rho_min.",
+        "--width", type=float, default=0.1,
     )
     args = parser.parse_args()
 
@@ -132,17 +122,11 @@ def main():
     true_neg_mask = ~true_pos_mask
 
     theoretical_rho = np.sqrt(np.log(p) / n)
-    if (args.rho_min is None) != (args.rho_max is None):
-        parser.error("--rho_min and --rho_max must be given together")
-    if args.rho_min is None:
-        rho_lo = theoretical_rho * 10.0 ** (-args.rho_decades)
-        rho_hi = theoretical_rho * 10.0 ** (+args.rho_decades)
-    else:
-        rho_lo, rho_hi = args.rho_min, args.rho_max
-    rho_grid = np.logspace(np.log10(rho_lo), np.log10(rho_hi), args.num_rho)
+    # make a evenly spaced grid centered at theoretical rho with half length width
+    rho_grid = np.linspace(theoretical_rho - args.width, theoretical_rho + args.width, args.num_rho)
 
     print(f"theoretical rho = sqrt(log({p}) / {n}) = {theoretical_rho:.5g}")
-    print(f"rho grid: {rho_lo:.5g} .. {rho_hi:.5g}, {args.num_rho} points, log-spaced")
+    print(f"rho grid: {rho_grid}")
 
     fp_mwgp = np.empty((args.num_simulations, args.num_rho))
     tp_mwgp = np.empty((args.num_simulations, args.num_rho))

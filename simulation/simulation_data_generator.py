@@ -115,8 +115,7 @@ def make_true_theta(p, prob=0.01, min_eig=0.6, rng=None):
 
 
 def simulate_contaminated_normal_data(n, p, Theta_true, eps=0.02,
-                            contam_var=0.2, mult=2.5, random_sign=False,
-                            min_eig=0.6, prob=0.01, rng=None):
+                            contam_var=0.2, mult=2.5, random_sign=False, rng=None):
     """N_p(0, theta^-1) sample with a fraction `eps` of the individual
     ENTRIES replaced by N(mu_star, contam_var) draws, where
     mu_star = mult * max(diag(theta^-1))."""

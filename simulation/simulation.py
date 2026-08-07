@@ -83,7 +83,7 @@ if __name__ == "__main__":
     eta_true = rng.uniform(low=-1, high=1, size=args.p)
     # nu_true  = np.array([0.15, 0.25, 0.35, 0.10, 0.30])
     nu_true = rng.uniform(low=0.15, high=0.9, size=args.p)
-    Theta_true = make_true_theta(args.p, sparsity=0.7, rng=rng)
+    Theta_true = dg.make_true_theta(args.p)
     
     """
     Run the specified method (VAE or EM) to estimate parameters from the simulated data.

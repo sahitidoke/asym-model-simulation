@@ -123,7 +123,7 @@ def main():
 
     theoretical_rho = np.sqrt(np.log(p) / n)
     # make a evenly spaced grid centered at theoretical rho with half length width
-    rho_grid = np.linspace(theoretical_rho - args.width, theoretical_rho + args.width, args.num_rho)
+    rho_grid = np.logspace(theoretical_rho - args.width, theoretical_rho + args.width, args.num_rho)
 
     print(f"theoretical rho = sqrt(log({p}) / {n}) = {theoretical_rho:.5g}")
     print(f"rho grid: {rho_grid}")
@@ -246,7 +246,7 @@ def main():
             label=r"$\rho=\sqrt{\log p\,/\,n}$" + f" = {theoretical_rho:.3g}")
 
     ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
+    ax.set_ylim(0, 1.2)
     ax.set_xlabel("false positive rate (1 - specificity)")
     ax.set_ylabel("true positive rate (sensitivity)")
     ax.set_title(f"Precision-matrix support recovery: p={p}, n={n}")

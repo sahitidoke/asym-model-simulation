@@ -28,7 +28,7 @@ def stars(Y, rhos, fit, N=20, beta=0.05, b=None, seed=None):
         edges = np.zeros((p, p))
         for s in range(N):
             print(f"subsample {s+1}/{N}...", end="\n", flush=True)
-            inits[s] = fit(Y = subs[s], rho = rho, init = inits[s], verbose = False, warning = True)  
+            inits[s] = fit(Y = subs[s], rho = rho, init = inits[s], verbose = True)  
             A = np.abs(inits[s]["Theta"]) > 1e-8
             np.fill_diagonal(A, False)
             edges += A

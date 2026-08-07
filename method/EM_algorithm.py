@@ -17,15 +17,49 @@ def gig_log_moment_fd(lam, chi, psi, h=1e-4):
     log_den = np.log(kve(lam - h, x))
     return 0.5 * np.log(chi / psi) + (log_num - log_den) / (2 * h)
 
+def _solve_nu(S_j, n, p):
 
-def run_em_diagonal(Y, n_iter=60, rho=0.05, verbose=True):
+    def stationarity(nu_j, S):
+        a = 2.0 / nu_j
+        return n * (np.log(a) + 1.0 - digamma(a)) - S
+
+    nu_new = np.empty(p)
+
+    for j in range(p):
+        f = lambda x: stationarity(x, S_j[j])
+
+        try:
+            nu_new[j] = brentq(
+                f,
+                1e-4,
+                100.0,
+                xtol=1e-6
+            )
+
+        except ValueError:
+            # fallback instead of crashing
+            nu_new[j] = np.clip(
+                2.0 / max(S_j[j] / n, 1e-8),
+                1e-3,
+                100.0
+            )
+
+    return nu_new
+
+def run_em_diagonal(Y, n_iter=60, rho=0.05, init= None, verbose=True):
     n, p = Y.shape
-    mu = Y.mean(axis=0)
-    gamma = np.full(p, 0.5)            
-    nu = np.full(p, 0.5)
-    eta = gamma / nu
-    theta_bar = 1.0 / Y.var(axis=0)    
-    Theta = np.diag(theta_bar)        
+
+    if (init is None):
+        mu = Y.mean(axis=0)
+        gamma = np.full(p, 0.5)            
+        nu = np.full(p, 0.5)
+        eta = gamma / nu
+        theta_bar = 1.0 / Y.var(axis=0)    
+        Theta = np.diag(theta_bar)    
+    else:
+        mu, nu, eta, Theta = init["mu"],init["nu"],init["eta"],init["Theta"]
+        theta_bar = np.diag(Theta)
+
 
     hist = {"mu": [], "eta": [], "nu": [], "theta_diag": []}
     it = 0
@@ -58,35 +92,14 @@ def run_em_diagonal(Y, n_iter=60, rho=0.05, verbose=True):
         # Update parameters nu, eta
 
         S_j = (L_log + M_neg1).sum(axis=0)
-
-        def stationarity(nu_j, S):
-            a = 2.0 / nu_j
-            return n * (np.log(a) + 1.0 - digamma(a)) - S
-
-        nu_new = np.empty(p)
-
-        for j in range(p):
-            f = lambda x: stationarity(x, S_j[j])
-
-            try:
-                nu_new[j] = brentq(f, 0.01, 5.0, xtol=1e-6)
-
-            except ValueError:
-                raise ValueError(f"Root finding failed for nu[{j}] with S_j={S_j[j]}")
-                # res = minimize_scalar(
-                #     lambda x: -(
-                #         n * (
-                #             (2.0 / x) * np.log(2.0 / x)
-                #             - gammaln(2.0 / x)
-                #         )
-                #         - (2.0 / x) * S_j[j]
-                #     ),
-                #     bounds=(0.01, 5.0),
-                #     method="bounded"
-                # )
-                # nu_new[j] = res.x
-
+        nu_new = _solve_nu(S_j, n, p)
+        nu_new = np.clip(nu_new, 1e-3, 100)
         eta_new = gamma_new / nu_new
+        eta_new = np.clip(
+            eta_new,
+            -20,
+            20
+        )
 
         # Compute the expected S given the first three parameters mu, nu, eta
         z_mean = (
@@ -1138,18 +1151,10 @@ def run_em_MWGP(
             a_j = 2.0 / nu_j
             return n * (np.log(a_j) + 1.0 - digamma(a_j)) - S
 
-        nu_new = np.empty(p)
-        for j in range(p):
-            try:
-                nu_new[j] = brentq(
-                    lambda x: stationarity(x, S_j[j]), 0.01, 5.0, xtol=1e-6,
-                )
-            except ValueError:
-                raise ValueError(
-                    f"Root finding failed for nu[{j}] with S_j={S_j[j]}"
-                )
-
+        nu_new = _solve_nu(S_j, n, p)
+        nu_new = np.clip(nu_new, 1e-3, 100)
         eta_new = gamma_new / nu_new
+        eta_new = np.clip(eta_new,-20,20)
 
         # ==================== Compute expected S_tau =================
         Zs = (

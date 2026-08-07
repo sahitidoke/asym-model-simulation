@@ -1,4 +1,7 @@
 import numpy as np
+import os
+from matplotlib import pyplot as plt
+from scipy.stats import norm, skew
 
 def simulate_aat_data(n, p, Theta_true, mu, eta, nu, rng):
     Psi_true = np.linalg.inv(Theta_true)
@@ -9,6 +12,12 @@ def simulate_aat_data(n, p, Theta_true, mu, eta, nu, rng):
     X = rng.multivariate_normal(mean=np.zeros(p), cov=Psi_true, size=n)
     Y = mu[None, :] + eta[None, :] * nu[None, :] * tau + np.sqrt(tau) * X
     return Y, tau
+
+def simulate_gaussian_data(n,p, Theta_true):
+    Psi_true = np.linalg.inv(Theta_true)
+    Y = np.random.multivariate_normal(mean=np.zeros(p), cov=Psi_true, size=n)
+    return Y
+
 
 def simulate_noisy_gaussian_data(n, p, Theta_true,
                   skewness=0.0, 
@@ -68,3 +77,53 @@ def simulate_noisy_gaussian_data(n, p, Theta_true,
         Y = Y + noise
     
     return Y
+
+if __name__ == "__main__":
+    # imported here, not at module scope: simulation.simulation imports this
+    # module, so a top-level import would be circular when this file is __main__
+    from simulation.simulation import make_true_theta
+
+    n, p = 2000, 20
+    true_theta = make_true_theta(p)
+    Y = simulate_noisy_gaussian_data(n, p, true_theta, skewness=0.6, outlier_frac=0.001)
+
+    INK, MUTED, GRID = "#0b0b0b", "#52514e", "#e6e5e0"
+    BAR, REF = "#2a78d6", "#52514e"
+
+    ncol = 5
+    nrow = int(np.ceil(p / ncol))
+    fig, axs = plt.subplots(nrow, ncol, figsize=(3.0 * ncol, 2.2 * nrow),
+                            sharex=False, sharey=False)
+    for j, ax in enumerate(axs.ravel()):
+        if j >= p:
+            ax.set_axis_off()
+            continue
+        yj = Y[:, j]
+        ax.hist(yj, bins=50, density=True, color=BAR,
+                edgecolor="white", linewidth=0.3)
+        # Gaussian with the same mean/sd: the gap between this and the bars is
+        # exactly the skew + outlier contamination the generator introduces.
+        xs = np.linspace(yj.min(), yj.max(), 200)
+        ax.plot(xs, norm.pdf(xs, yj.mean(), yj.std(ddof=1)),
+                color=REF, linewidth=1.5, linestyle="--")
+        ax.set_title(f"$Y_{{{j + 1}}}$   skew {skew(yj):+.2f}",
+                     fontsize=9, color=INK)
+        ax.tick_params(labelsize=7, colors=MUTED, length=3)
+        ax.grid(axis="y", color=GRID, linewidth=0.6)
+        ax.set_axisbelow(True)
+        for side in ("top", "right", "left"):
+            ax.spines[side].set_visible(False)
+        ax.spines["bottom"].set_color(GRID)
+
+    fig.suptitle(
+        f"Simulated Y: n={n}, p={p} (skewness=0.6, outlier_frac=0.001)\n"
+        "dashed = Gaussian with matched mean/sd",
+        fontsize=11, color=INK,
+    )
+    fig.tight_layout(rect=[0, 0, 1, 0.94])
+
+    os.makedirs("results/simulations", exist_ok=True)
+    out = "results/simulations/data_distribution.pdf"
+    fig.savefig(out, bbox_inches="tight")
+    print(f"pooled skewness across all {p} dims: {skew(Y.ravel()):+.3f}")
+    print(f"saved {out}")

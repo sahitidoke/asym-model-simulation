@@ -128,6 +128,7 @@ def run_em_diagonal(Y, n_iter=60, rho=0.05, init= None, verbose=True):
         # off_diag = ~np.eye(p, dtype=bool)
         # print(f"max|S_ij| (off-diag): {np.max(np.abs(S_tau[off_diag]))}, rho: {rho}")
         
+        
         # Glasso step to estimate Theta. sklearn penalizes off-diagonals only;
         # adding rho*I recovers the fully penalized objective, since
         # tr(S Theta) + rho * sum_j theta_jj = tr((S + rho I) Theta).
@@ -158,19 +159,28 @@ def run_em_diagonal(Y, n_iter=60, rho=0.05, init= None, verbose=True):
 
     return {"mu": mu, "eta": eta, "nu": nu, "Theta": Theta, "history": hist}
 
-def run_em_exact(Y, n_iter=60, rho=0.05, verbose=True, err=1e-3, run_until_convergence=False):
+def run_em_exact(Y, n_iter=60, rho=0.05, init = None, verbose=True):
     n, p = Y.shape
-    mu = Y.mean(axis=0)           
-    nu = np.full(p, 0.5)  # moderate tail initialization
-    scale = np.maximum(Y.std(axis=0, ddof=1), 1e-8)
-    sample_skew = skew(Y, axis=0, bias=False)
-    gamma = 0.1 * scale * np.tanh(sample_skew)
-    eta = gamma / nu
-    Theta = np.diag(1.0 / Y.var(axis=0))
+
+    if (init is None):
+        mu = Y.mean(axis=0)
+        gamma = np.full(p, 0.5)            
+        nu = np.full(p, 0.5)
+        eta = gamma / nu
+        theta_bar = 1.0 / Y.var(axis=0)    
+        Theta = np.diag(theta_bar)    
+    else:
+        # nu/eta are tail-shape nuisance parameters and fall back to the
+        # cold-start values when absent, so a warm-started rho sweep can carry
+        # mu/Theta forward without letting nu ratchet down across steps.
+        mu, Theta = init["mu"], init["Theta"]
+        nu = init.get("nu", np.full(p, 0.5))
+        eta = init.get("eta", np.full(p, 0.5) / nu)
+        theta_bar = np.diag(Theta)
 
     hist = {"mu": [], "eta": [], "nu": [], "theta_diag": []}
     it = 0
-    while True:
+    for it in range(n_iter):
         theta_diag = np.diag(Theta)
 
         # Compute GIG parameters 
@@ -225,33 +235,7 @@ def run_em_exact(Y, n_iter=60, rho=0.05, verbose=True, err=1e-3, run_until_conve
 
         S_j = (L_log + M_neg1).sum(axis=0)
 
-        def stationarity(nu_j, S):
-            a = 2.0 / nu_j
-            return n * (np.log(a) + 1.0 - digamma(a)) - S
-
-        nu_new = np.empty(p)
-
-        for j in range(p):
-            f = lambda x: stationarity(x, S_j[j])
-
-            try:
-                nu_new[j] = brentq(f, 0.01, 5.0, xtol=1e-6)
-
-            except ValueError:
-                raise ValueError(f"Root finding failed for nu[{j}] with S_j={S_j[j]}")
-                # res = minimize_scalar(
-                #     lambda x: -(
-                #         n * (
-                #             (2.0 / x) * np.log(2.0 / x)
-                #             - gammaln(2.0 / x)
-                #         )
-                #         - (2.0 / x) * S_j[j]
-                #     ),
-                #     bounds=(0.01, 5.0),
-                #     method="bounded"
-                # )
-                # nu_new[j] = res.x
-
+        nu_new = _solve_nu(S_j, n, p)
         eta_new = gamma_new / nu_new
 
         # Compute the expected S given the first three parameters mu, nu, eta
@@ -299,12 +283,6 @@ def run_em_exact(Y, n_iter=60, rho=0.05, verbose=True, err=1e-3, run_until_conve
 
         if verbose and (it % 5 == 0):
             print(f"iter {it:3d} | param-change {diff:.10f}")
-
-        if (run_until_convergence and diff < err) or (not run_until_convergence and it >= n_iter):
-            if verbose:
-                print(f"Converged at iteration {it}.")
-            break
-        it += 1
 
     return {"mu": mu, "eta": eta, "nu": nu, "Theta": Theta, "history": hist}
 

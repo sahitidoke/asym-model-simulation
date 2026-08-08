@@ -56,26 +56,28 @@ if (args.standardize):
 n,p = Y.shape
 if (args.method == "diagonal"):
     fitting_algorithm = em.run_em_diagonal
+elif (args.method == "exact"):
+    fitting_algorithm = em.run_em_exact
 elif (args.method == "mwgp"):   
     fitting_algorithm = em.run_em_MWGP
 elif (args.method == "tlasso"):
     fitting_algorithm = tlasso.run_tlasso
 
 # Select RHO using StARS
-RHO = np.sqrt(np.log(p)/n)  # default value if StARS fails
+theoretical_rho = np.sqrt(np.log(p)/n)  # default value if StARS fails
+print(f"Theoretical Rho: {theoretical_rho}")
 
-# rho_grid = stars.rho_grid(Y, k = 10)
-# print(f"Theoretical Rho: {RHO}, Rho grid: {rho_grid}")
+rho_grid = stars.rho_grid(Y, k = 10)
+print(f"Rho grid: {rho_grid}")
+RHO, rho_curve = stars.stars(Y, rho_grid, fitting_algorithm, N = 10, beta = 0.05)
 
-# RHO, rho_curve = stars.stars(Y, rho_grid, fitting_algorithm, N = 10, beta = 0.05)
-
-# # plot rho_curve, which is a python list of tuples (rho, D)
-# plt.figure(figsize=(10, 6))
-# plt.plot([rho for rho, _ in rho_curve], [D for _, D in rho_curve], 'o-')
-# plt.xlabel('Rho')
-# plt.ylabel('D')
-# plt.title('StARS: Rho Selection')
-# plt.savefig(f"results/applications/rho_curve_{args.database}_{args.method}.pdf")
+# plot rho_curve, which is a python list of tuples (rho, D)
+plt.figure(figsize=(10, 6))
+plt.plot([rho for rho, _ in rho_curve], [D for _, D in rho_curve], 'o-')
+plt.xlabel('Rho')
+plt.ylabel('D')
+plt.title('StARS: Rho Selection')
+plt.savefig(f"results/applications/rho_curve_{args.database}_{args.method}.pdf")
 
 print(f"Running EM algorithm on {args.database} data with shape {Y.shape} and rho={RHO:.5f}...\n")
 print("=" * 80)

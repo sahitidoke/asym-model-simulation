@@ -12,12 +12,12 @@ parser = argparse.ArgumentParser(
 
 parser.add_argument(
     "--standardize",
-    type=bool,
-    help="Standardize the data before running the algorithm. Default: False. "
-         "rho = sqrt(log p / n) is only scale-free on standardized data: on raw "
-         "SNP500 log-returns it is ~700x the largest off-diagonal covariance and "
-         "glasso returns an empty graph.",
-    default = False
+    action="store_true",
+    help="Standardize the data before running the algorithm. Off unless the "
+         "flag is present; it takes no value. rho = sqrt(log p / n) is only "
+         "scale-free on standardized data: on raw SNP500 log-returns it is "
+         "~700x the largest off-diagonal covariance and glasso returns an "
+         "empty graph.",
 )
 
 parser.add_argument(

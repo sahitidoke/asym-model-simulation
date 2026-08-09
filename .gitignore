@@ -48,6 +48,5 @@ Thumbs.db
 
 # Temporary files
 *.log
-!roc_run.log
 *.tmp
 *.swp

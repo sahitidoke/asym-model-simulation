@@ -17,6 +17,7 @@ parser.add_argument(
          "rho = sqrt(log p / n) is only scale-free on standardized data: on raw "
          "SNP500 log-returns it is ~700x the largest off-diagonal covariance and "
          "glasso returns an empty graph.",
+    default = False
 )
 
 parser.add_argument(
@@ -98,7 +99,7 @@ output = {
 }
 
 
-filename = f"results/applications/application_results.json" if args.filename is None else f"results/applications/{args.filename}.json"
+filename = f"results/applications/{args.database}_{args.method}_st_{args.standardize}.json" if args.filename is None else f"results/applications/{args.filename}.json"
 os.makedirs("results/applications", exist_ok=True)
 with open(filename, "w") as f:
     json.dump(output, f)

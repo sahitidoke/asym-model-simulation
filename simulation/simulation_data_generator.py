@@ -139,13 +139,16 @@ def simulate_contaminated_normal_data(n, p, Theta_true, eps=0.02,
     return Y
 
 if __name__ == "__main__":
-    # imported here, not at module scope: simulation.simulation imports this
-    # module, so a top-level import would be circular when this file is __main__
-    from simulation.simulation import make_true_theta
-
     n, p = 2000, 20
-    true_theta = make_true_theta(p)
-    Y = simulate_noisy_gaussian_data(n, p, true_theta, skewness=0.6, outlier_frac=0.001)
+    true_theta = make_true_theta(p, prob=0.15)
+
+    # Swap these two lines for whichever generator you want to look at.
+    # name = "contaminated_normal"
+    # Y = simulate_contaminated_normal_data(n, p, true_theta)
+    name = "noisy_gaussian"
+    Y = simulate_noisy_gaussian_data(n, p, true_theta, skewness = 0.7)
+
+    skews = skew(Y, axis=0)
 
     INK, MUTED, GRID = "#0b0b0b", "#52514e", "#e6e5e0"
     BAR, REF = "#2a78d6", "#52514e"
@@ -153,7 +156,7 @@ if __name__ == "__main__":
     ncol = 5
     nrow = int(np.ceil(p / ncol))
     fig, axs = plt.subplots(nrow, ncol, figsize=(3.0 * ncol, 2.2 * nrow),
-                            sharex=False, sharey=False)
+                            squeeze=False)
     for j, ax in enumerate(axs.ravel()):
         if j >= p:
             ax.set_axis_off()
@@ -161,12 +164,13 @@ if __name__ == "__main__":
         yj = Y[:, j]
         ax.hist(yj, bins=50, density=True, color=BAR,
                 edgecolor="white", linewidth=0.3)
-        # Gaussian with the same mean/sd: the gap between this and the bars is
-        # exactly the skew + outlier contamination the generator introduces.
-        xs = np.linspace(yj.min(), yj.max(), 200)
+        # Normal with this column's own mean/sd -- the null, not a fit. Any gap
+        # between it and the bars is that marginal's non-normality, whatever
+        # generator produced Y.
+        xs = np.linspace(yj.min(), yj.max(), 300)
         ax.plot(xs, norm.pdf(xs, yj.mean(), yj.std(ddof=1)),
                 color=REF, linewidth=1.5, linestyle="--")
-        ax.set_title(f"$Y_{{{j + 1}}}$   skew {skew(yj):+.2f}",
+        ax.set_title(f"$Y_{{{j + 1}}}$   skew {skews[j]:+.2f}",
                      fontsize=9, color=INK)
         ax.tick_params(labelsize=7, colors=MUTED, length=3)
         ax.grid(axis="y", color=GRID, linewidth=0.6)
@@ -175,15 +179,18 @@ if __name__ == "__main__":
             ax.spines[side].set_visible(False)
         ax.spines["bottom"].set_color(GRID)
 
-    fig.suptitle(
-        f"Simulated Y: n={n}, p={p} (skewness=0.6, outlier_frac=0.001)\n"
-        "dashed = Gaussian with matched mean/sd",
-        fontsize=11, color=INK,
-    )
+    fig.suptitle(f"Marginals of Y from {name}: n={n}, p={p}\n"
+                 "dashed = Gaussian with matched mean/sd",
+                 fontsize=11, color=INK)
     fig.tight_layout(rect=[0, 0, 1, 0.94])
 
     os.makedirs("results/simulations", exist_ok=True)
-    out = "results/simulations/data_distribution.pdf"
+    out = f"results/simulations/marginals_{name}.pdf"
     fig.savefig(out, bbox_inches="tight")
-    print(f"pooled skewness across all {p} dims: {skew(Y.ravel()):+.3f}")
+
+    print(f"skewness of each marginal ({name}):")
+    for j in range(p):
+        print(f"  Y_{j + 1:<3} {skews[j]:+.3f}")
+    print(f"min {skews.min():+.3f}   median {np.median(skews):+.3f}   "
+          f"max {skews.max():+.3f}   mean |skew| {np.abs(skews).mean():.3f}")
     print(f"saved {out}")

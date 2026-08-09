@@ -34,9 +34,6 @@ def run_tlasso(Y, nu=3.0, n_iter=60, rho=0.05, init = None, verbose=True):
         S_tau = (S_tau + S_tau.T) / 2.0
         S_tau += 1e-10 * np.eye(p)
         
-        off_diag = ~np.eye(p, dtype=bool)
-        print(f"max|S_ij| (off-diag): {np.max(np.abs(S_tau[off_diag]))}, rho: {rho}")
-
         # Glasso step to estimate Theta. sklearn penalizes off-diagonals only;
         # adding rho*I recovers the paper's fully penalized objective, since
         # tr(S Theta) + rho * sum_j theta_jj = tr((S + rho I) Theta).
@@ -62,7 +59,8 @@ def run_tlasso(Y, nu=3.0, n_iter=60, rho=0.05, init = None, verbose=True):
         if verbose and (it % 5 == 0):
             print(f"iter {it:3d} | param-change {diff:.10f}")
 
-    return {"mu": mu, "nu": nu, "Theta": Theta, "tau": tau, "history": hist}
+    return {"mu": mu, "nu": nu, "Theta": Theta, "tau": tau, "history": hist,
+            "S_tau": S_tau}
 
 
 def run_tstar_varlasso(Y, nu=3.0, n_iter=60, rho=0.05, init=None, verbose=True):
@@ -131,4 +129,5 @@ def run_tstar_varlasso(Y, nu=3.0, n_iter=60, rho=0.05, init=None, verbose=True):
         if verbose and (it % 5 == 0):
             print(f"iter {it:3d} | param-change {diff:.10f}")
 
-    return {"mu": mu, "nu": nu, "Theta": Theta, "tau": M_pos1, "history": hist}
+    return {"mu": mu, "nu": nu, "Theta": Theta, "tau": M_pos1, "history": hist,
+            "S_tau": S_tau}

@@ -157,7 +157,8 @@ def run_em_diagonal(Y, n_iter=60, rho=0.05, init= None, verbose=True):
         if verbose and (it % 5 == 0):
             print(f"iter {it:3d} | param-change {diff:.10f}")
 
-    return {"mu": mu, "eta": eta, "nu": nu, "Theta": Theta, "history": hist}
+    return {"mu": mu, "eta": eta, "nu": nu, "Theta": Theta, "history": hist,
+            "S_tau": S_tau}
 
 def run_em_exact(Y, n_iter=60, rho=0.05, init = None, verbose=True):
     n, p = Y.shape
@@ -284,7 +285,8 @@ def run_em_exact(Y, n_iter=60, rho=0.05, init = None, verbose=True):
         if verbose and (it % 5 == 0):
             print(f"iter {it:3d} | param-change {diff:.10f}")
 
-    return {"mu": mu, "eta": eta, "nu": nu, "Theta": Theta, "history": hist}
+    return {"mu": mu, "eta": eta, "nu": nu, "Theta": Theta, "history": hist,
+            "S_tau": S_tau}
 
 def run_em_MWG(
     Y,
@@ -725,6 +727,7 @@ def run_em_MWG(
         "nu": nu,
         "Theta": Theta,
         "history": hist,
+        "S_tau": S_tau,
     }
 
 def _sample_log_gig(lam, chi, psi, size_T, rng, max_rounds=200):
@@ -1437,4 +1440,5 @@ def run_em_importance(
         "Theta": Theta,
         "history": hist,
         "last_ess": ess,
+        "S_tau": S_tau,
     }

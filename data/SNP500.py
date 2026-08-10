@@ -48,8 +48,9 @@ if __name__ == "__main__":
 
     # Get the historical data for each ticker and store it in a dictionary
     data = {}
+
     for ticker in tickers:
-        d = get_historical_data(ticker,'2020-01-01', '2026-01-01')
+        d = get_historical_data(ticker,'2025-01-01', '2026-01-01')
         # A failed fetch (BRK.B, BF.B -- yfinance wants BRK-B, BF-B) returns an
         # EMPTY frame, whose null count is 0, so it would pass a bare isnull()
         # check and become an all-NaN column once from_dict aligns the dates.
@@ -59,6 +60,7 @@ if __name__ == "__main__":
             print(f"Missing data for {ticker}, skipping.")
         else:
             data[ticker] = np.log10 (d['Close'] / d['Close'].shift(1))
+            data[ticker].pop(d.first_valid_index()) #First row is left empty after shift
 
     price_df = pandas.DataFrame.from_dict(data)
 

@@ -144,7 +144,7 @@ if __name__ == "__main__":
     rng = np.random.default_rng()
     mu_true  = rng.uniform(low=-5, high=5, size=p)
     eta_true = rng.uniform(low=-5, high=5, size=p)
-    nu_true = rng.uniform(low=0.15, high=1.9, size=p)
+    nu_true = rng.uniform(low=0.15, high=0.9, size=p)
     Theta_true = make_true_theta(p)
 
     # Swap these two lines for whichever generator you want to look at.

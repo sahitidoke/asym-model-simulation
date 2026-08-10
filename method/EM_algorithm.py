@@ -143,9 +143,18 @@ def run_em_diagonal(Y, n_iter=60, rho=0.05, init= None, verbose=True,
         # Glasso step to estimate Theta. sklearn penalizes off-diagonals only;
         # adding rho*I recovers the fully penalized objective, since
         # tr(S Theta) + rho * sum_j theta_jj = tr((S + rho I) Theta).
+        #
+        # enet_tol (inner coordinate-descent accuracy) has to sit well below
+        # tol (outer dual-gap target). sklearn checks |dual gap| < tol, but the
+        # gap is computed from a precision matrix that the inner solver only
+        # resolved to enet_tol, which puts a floor of a few times enet_tol
+        # under |gap|. At the 1e-4 default that floor straddles tol=1e-3: the
+        # gap stalls (often negative) and every call burns all max_iter sweeps
+        # at the optimum. 1e-6 puts the floor ~1e-5; 1e-8 is no better.
         try:
             cov_glasso, Theta_new = graphical_lasso(
-                S_tau + rho * np.eye(p), alpha=rho, max_iter=200, tol=1e-3
+                S_tau + rho * np.eye(p), alpha=rho, max_iter=200, tol=1e-3,
+                enet_tol=1e-6,
             )
         except Exception as e:
             if verbose:
@@ -282,10 +291,14 @@ def run_em_exact(Y, n_iter=60, rho=0.05, init = None, tol=1e-4, verbose=True):
         # adding rho*I recovers the fully penalized objective, since
         # tr(S Theta) + rho * sum_j theta_jj = tr((S + rho I) Theta).
         try:
+            # See run_em_diagonal for why enet_tol is pinned below tol; here
+            # tol is sklearn's 1e-4 default, so the 1e-4 enet_tol default left
+            # the gap floor above it and every call ran all 1000 sweeps.
             _, Theta_new = graphical_lasso(S_tau + rho * np.eye(p),
                                            alpha=rho,
                                            # alpha=2 * rho / n,
-                                           max_iter=1000)
+                                           max_iter=1000,
+                                           enet_tol=1e-6)
         except Exception as e:
             if verbose:
                 print(f"  [warn] glasso failed at iter {it}: {e}; keeping previous Theta")
@@ -1217,8 +1230,10 @@ def run_em_MWGP(
         # penalized objective, since
         # tr(S Theta) + rho * sum_j theta_jj = tr((S + rho I) Theta).
         try:
+            # See run_em_diagonal for why enet_tol is pinned below tol.
             _, Theta_new = graphical_lasso(
-                S_tau + rho * np.eye(p), alpha=rho, max_iter=200, tol=1e-3
+                S_tau + rho * np.eye(p), alpha=rho, max_iter=200, tol=1e-3,
+                enet_tol=1e-6,
             )
         except Exception as e:
             if warning:

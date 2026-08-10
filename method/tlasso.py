@@ -45,9 +45,20 @@ def run_tlasso(Y, nu=3.0, n_iter=60, rho=0.05, init = None, verbose=True,
         # Glasso step to estimate Theta. sklearn penalizes off-diagonals only;
         # adding rho*I recovers the paper's fully penalized objective, since
         # tr(S Theta) + rho * sum_j theta_jj = tr((S + rho I) Theta).
+        #
+        # enet_tol (inner coordinate-descent accuracy) has to sit well below
+        # tol (outer dual-gap target). sklearn checks |dual gap| < tol, but the
+        # gap is computed from a precision matrix that the inner solver only
+        # resolved to enet_tol, which puts a floor of a few times enet_tol
+        # under |gap|. At the 1e-4 default that floor straddles tol=1e-3: the
+        # gap stalls (often negative, e.g. -2.7e-3) and every call burns all
+        # max_iter sweeps at the optimum, which is what produced the
+        # ConvergenceWarning storm. 1e-6 puts the floor ~1e-5 and the outer
+        # loop exits in a handful of sweeps; 1e-8 is no better.
         try:
             cov_glasso, Theta_new = graphical_lasso(
-                S_tau + rho * np.eye(p), alpha=rho, max_iter=200, tol=1e-3
+                S_tau + rho * np.eye(p), alpha=rho, max_iter=200, tol=1e-3,
+                enet_tol=1e-6,
             )
         except Exception as e:
             if verbose:
@@ -128,8 +139,10 @@ def run_tstar_varlasso(Y, nu=3.0, n_iter=60, rho=0.05, init=None, verbose=True,
         # adding rho*I recovers the paper's fully penalized objective, since
         # tr(S Theta) + rho * sum_j theta_jj = tr((S + rho I) Theta).
         try:
+            # See run_tlasso for why enet_tol is pinned below tol.
             cov_glasso, Theta_new = graphical_lasso(
-                S_tau + rho * np.eye(p), alpha=rho, max_iter=200, tol=1e-2
+                S_tau + rho * np.eye(p), alpha=rho, max_iter=200, tol=1e-2,
+                enet_tol=1e-6,
             )
         except Exception as e:
             if verbose:

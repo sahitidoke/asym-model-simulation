@@ -58,7 +58,7 @@ if __name__ == "__main__":
         elif d.isnull().sum().sum():
             print(f"Missing data for {ticker}, skipping.")
         else:
-            data[ticker] = np.log10 (d['Close'] / d['Open'])
+            data[ticker] = np.log10 (d['Close'] / d['Close'].shift(1))
 
     price_df = pandas.DataFrame.from_dict(data)
 

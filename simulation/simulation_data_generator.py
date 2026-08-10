@@ -140,13 +140,18 @@ def simulate_contaminated_normal_data(n, p, Theta_true, eps=0.02,
 
 if __name__ == "__main__":
     n, p = 2000, 20
-    true_theta = make_true_theta(p, prob=0.15)
+    
+    rng = np.random.default_rng()
+    mu_true  = rng.uniform(low=-5, high=5, size=p)
+    eta_true = rng.uniform(low=-5, high=5, size=p)
+    nu_true = rng.uniform(low=0.15, high=1.9, size=p)
+    Theta_true = make_true_theta(p)
 
     # Swap these two lines for whichever generator you want to look at.
     # name = "contaminated_normal"
     # Y = simulate_contaminated_normal_data(n, p, true_theta)
-    name = "noisy_gaussian"
-    Y = simulate_noisy_gaussian_data(n, p, true_theta, skewness = 0.7)
+    name = "aat"
+    Y,_ = simulate_aat_data(n, p, Theta_true, mu_true, eta_true, nu_true, rng)
 
     skews = skew(Y, axis=0)
 

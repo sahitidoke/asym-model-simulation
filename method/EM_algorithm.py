@@ -46,8 +46,8 @@ def _solve_nu(S_j, n, p):
 
     return nu_new
 
-def run_em_diagonal(Y, n_iter=60, rho=0.05, init= None, verbose=True,
-                    tol=1e-4):
+def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True,
+                    tol=1e-8):
     # tol stops the EM once the relative L1 change of (mu, Theta) in one step
     # falls below it. eta/nu are deliberately excluded from the criterion:
     # eta drifts by ~1 (L1) per iteration essentially forever, so any rule

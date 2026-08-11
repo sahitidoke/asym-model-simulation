@@ -2,13 +2,48 @@
 
 import numpy as np
 
+def make_rho_grid(rho_max, n_rho=50, max_ratio = 1, min_ratio=0.05):
+    """Log-spaced, DESCENDING grid on [min_ratio * rho_max, rho_max].
 
-def rho_grid(Y, k=30, ratio=0.02):
-    S = np.cov(Y, rowvar=False)
-    np.fill_diagonal(S, 0.0)
-    hi = np.abs(S).max()
-    return np.exp(np.linspace(np.log(ratio * hi), np.log(hi), k))
+    Log spacing because edge count is roughly geometric in rho: linear
+    spacing wastes most points in the dense end where the ROC curve barely
+    moves. Descending so warm starts run sparse -> dense, which is the
+    numerically stable direction when p > n.
+    """
+    return np.logspace(np.log10(max_ratio * rho_max), np.log10(min_ratio * rho_max), n_rho)
 
+def offdiag_max(S):
+    """max_{i != j} |S_ij|. The smallest rho that zeroes every off-diagonal."""
+    A = np.abs(np.asarray(S, dtype=float)).copy()
+    np.fill_diagonal(A, 0.0)
+    rmax = float(A.max())
+    if not np.isfinite(rmax) or rmax <= 0:
+        raise ValueError("rho_max is not positive; check the input matrix.")
+    return rmax
+
+def pilot_rho_max(
+    Y, algorithm, rho, algorithm_kwargs=None, rho_name="rho", S_key="S_tau",
+):
+    """rho_max for one method on one replicate: fit at `rho`, read off its S.
+
+    The EM M-step penalizes the working covariance S_tau, not cov(Y): S_tau is
+    tau-weighted, skew-corrected and (for MWGP) Monte-Carlo averaged, so its
+    off-diagonal scale is method-specific. Building every method's grid from
+    cov(Y) therefore starts each path at a different point along its own
+    regularization range -- some methods begin already empty, others begin
+    dense, and the index-wise average across replicates mixes those.
+
+    S_tau also depends on rho, so there is no rho-free version of it to
+    calibrate against. The pilot fit at the theoretical rho = sqrt(log p / n)
+    is the reference point: run the EM there to convergence, take
+    max_{i != j} |S_ij| of the converged S_tau, and use that as rho_max.
+    """
+    kwargs = {} if algorithm_kwargs is None else dict(algorithm_kwargs)
+    print(f"  pilot fit of {algorithm.__name__} at rho={rho:.5f}")
+    res = algorithm(Y, **{rho_name: rho}, **kwargs)
+    rho_max = offdiag_max(res[S_key])
+    print(f"  -> rho_max = max|S_ij| (off-diag) = {rho_max:.5f}")
+    return rho_max
 
 def stars(Y, rhos, fit, N=20, beta=0.05, b=None, seed=None):
     """fit(Ysub, rho, init) -> precision matrix. Returns (selected rho, [(rho, D)...])."""

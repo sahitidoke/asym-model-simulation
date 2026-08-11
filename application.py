@@ -68,7 +68,8 @@ elif (args.method == "tlasso"):
 theoretical_rho = np.sqrt(np.log(p)/n)  # default value if StARS fails
 print(f"Theoretical Rho: {theoretical_rho}")
 
-rho_grid = stars.rho_grid(Y, k = 10)
+rho_max = stars.pilot_rho_max(Y,fitting_algorithm,theoretical_rho)
+rho_grid = stars.make_rho_grid(rho_max,n_rho = 30, max_ratio = 1, min_ratio = 0.01)
 print(f"Rho grid: {rho_grid}")
 RHO, rho_curve = stars.stars(Y, rho_grid, fitting_algorithm, N = 10, beta = 0.05)
 

@@ -204,7 +204,16 @@ def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True, nu_fixed 
         theta_bar = np.diag(Theta)
 
     if nu_fixed is not None:
-        nu = nu_fixed
+        # Held for the whole fit, not just used as a starting value: the nu/eta
+        # M-step below is skipped while this is set. np.full takes a scalar or a
+        # (p,) array. eta is re-derived so the pair still implies the skew the
+        # initialisation had, gamma = nu * eta -- otherwise the first E-step
+        # would build psi = theta (eta nu)^2 out of one nu and an eta that came
+        # from another.
+        gamma_init = nu * eta
+        nu = np.full(p, nu_fixed, dtype=float)
+        eta = np.where(nu > 0.0, gamma_init / np.where(nu > 0.0, nu, 1.0), 0.0)
+
     hist = {"mu": [], "eta": [], "nu": [], "theta_diag": []}
     it = 0
     for it in range(n_iter):
@@ -236,8 +245,19 @@ def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True, nu_fixed 
 
         # Update parameters nu, eta
 
-        S_j = (L_log + M_neg1).sum(axis=0)
-        nu_new, eta_new, gamma_new = _solve_nu_eta(S_j, gamma_new, n, p)
+        if nu_fixed is None:
+            S_j = (L_log + M_neg1).sum(axis=0)
+            nu_new, eta_new, gamma_new = _solve_nu_eta(S_j, gamma_new, n, p)
+        else:
+            # nu is held at what the caller passed. gamma is still estimated,
+            # so eta = gamma/nu moves with it; a coordinate fixed at nu_j = 0
+            # is on the Gaussian path and carries no skew, same as the
+            # estimated case.
+            nu_new = nu
+            eta_new = np.where(nu_new > 0.0,
+                               gamma_new / np.where(nu_new > 0.0, nu_new, 1.0),
+                               0.0)
+            gamma_new = np.where(nu_new > 0.0, gamma_new, 0.0)
 
         # Compute the expected S given the first three parameters mu, nu, eta
         z_mean = (
@@ -287,7 +307,11 @@ def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True, nu_fixed 
         hist["theta_diag"].append(theta_bar.copy())
 
         if verbose and (it % 5 == 0):
+            # nu/eta as they stand after this iteration's M-step. A nu_j of 0 is
+            # the Gaussian path, and its eta_j is 0 with it by construction.
             print(f"iter {it:3d} | param-change {diff:.10f}")
+            print(f"          nu  = {np.round(nu, 3)}")
+            print(f"          eta = {np.round(eta, 3)}")
 
         if tol is not None and rel_change < tol:
             if verbose:

@@ -79,11 +79,12 @@ if __name__ == "__main__":
     """
     True distribution parameters
     """
-    mu_true  = rng.uniform(low=-1, high=1, size=args.p)
-    eta_true = rng.uniform(low=-1, high=1, size=args.p)
-    # nu_true  = np.array([0.15, 0.25, 0.35, 0.10, 0.30])
-    nu_true = rng.uniform(low=0.15, high=0.9, size=args.p)
-    Theta_true = dg.make_true_theta(args.p)
+    n,p = args.n, args.p
+    mu_true  = np.zeros(p)
+    eta_true = rng.uniform(low=4, high=5, size=p)
+    # nu_true = rng.uniform(low=1.4, high=1.5, size=p)
+    nu_true = np.full(p,0.5)
+    Theta_true = dg.make_true_theta(p)
     
     """
     Run the specified method (VAE or EM) to estimate parameters from the simulated data.
@@ -91,7 +92,7 @@ if __name__ == "__main__":
     NUM_SIMULATIONS = args.num_simulations
     for sim in range(NUM_SIMULATIONS):
         print(f"Simulation {sim+1}")
-        Y, tau_true = dg.simulate_noisy_gaussian_data(args.n, args.p, Theta_true)
+        Y, tau_true = dg.simulate_aat_data(args.n, args.p, Theta_true,mu_true,eta_true,nu_true,rng)
         print(f"Simulated data: Y shape = {Y.shape}")
         mus, etas, nus, thetas = [], [], [], []
         if args.method == "VAE":
@@ -123,10 +124,9 @@ if __name__ == "__main__":
 
             result = em.run_em_diagonal(
                 Y,
-                n_iter=500,
+                n_iter=200,
                 rho=0.0025,
-                err=1e-8,
-                run_until_convergence=False,
+                tol = 1e-5,
             )
         elif args.method == "EM_MWG":
             if args.diagnostics:

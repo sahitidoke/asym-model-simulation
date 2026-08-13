@@ -17,6 +17,25 @@ def gig_log_moment_fd(lam, chi, psi, h=1e-4):
     log_den = np.log(kve(lam - h, x))
     return 0.5 * np.log(chi / psi) + (log_num - log_den) / (2 * h)
 
+# Smallest nu the GIG moments can be evaluated at. The moments call
+# kve(lam, x) with lam = -2/nu - 0.5, and for small x that behaves like
+# 0.5 * Gamma(|lam|) * (2/x)^|lam|, which exceeds the double range once
+# |lam| reaches ~96 (x=0.05) to ~170 (x=2). Past that kve returns inf and
+# gig_moment returns inf/inf = nan; in the narrow band just below it,
+# kve(lam) is still finite while kve(lam-1) is not, so a moment comes back
+# +inf and the mixed-sign sums in the M-step hit inf + (-inf) -- the
+# "invalid value encountered in reduce" RuntimeWarning. Either way the fit
+# is destroyed: nan reaches S_tau, graphical_lasso then throws every
+# iteration, and Theta freezes at whatever it was.
+#
+# 0.03 puts |lam| at 67, comfortably under the smallest overflow point.
+# Note this does truncate the model: nu -> 0 makes tau degenerate at 1,
+# i.e. a Gaussian coordinate, so a coordinate that genuinely wants to be
+# Gaussian gets pinned here instead. Watch for nu sitting exactly at the
+# floor -- that is the estimator asking for a region it cannot reach.
+NU_MIN = 0.03
+
+
 def _solve_nu(S_j, n, p):
 
     def stationarity(nu_j, S):
@@ -29,25 +48,35 @@ def _solve_nu(S_j, n, p):
         f = lambda x: stationarity(x, S_j[j])
 
         try:
+            # The bracket starts at NU_MIN, not at an arbitrarily small
+            # number: a root below it is unusable anyway (see NU_MIN), and
+            # bracketing down there is what let nu reach the overflow zone
+            # on the normal return path, where nothing clipped it.
             nu_new[j] = brentq(
                 f,
-                1e-4,
+                NU_MIN,
                 100.0,
                 xtol=1e-6
             )
 
         except ValueError:
-            # fallback instead of crashing
+            # No sign change in the bracket -- usually the root sits below
+            # NU_MIN. Pin it at the floor rather than crashing.
             nu_new[j] = np.clip(
                 2.0 / max(S_j[j] / n, 1e-8),
-                1e-3,
+                NU_MIN,
                 100.0
             )
 
     return nu_new
 
 def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True,
-                    tol=1e-8):
+                    tol=1e-8, nu_fixed=None):
+    # nu_fixed holds nu at a known value (scalar or length-p) instead of
+    # estimating it, which drops both the per-coordinate brentq solve in
+    # _solve_nu and the gig_log_moment_fd evaluation that feeds it -- L_log is
+    # used for nothing else. eta is still estimated: it is gamma/nu, and gamma
+    # keeps its own M-step.
     # tol stops the EM once the relative L1 change of (mu, Theta) in one step
     # falls below it. eta/nu are deliberately excluded from the criterion:
     # eta drifts by ~1 (L1) per iteration essentially forever, so any rule
@@ -59,6 +88,10 @@ def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True,
     # one true edge of the reference, which is the same magnitude as the
     # reference's own residual drift. tol=0 restores fixed-n_iter behavior.
     n, p = Y.shape
+    if nu_fixed is not None:
+        nu_fixed = np.broadcast_to(
+            np.asarray(nu_fixed, dtype=float), (p,)
+        ).copy()
 
     if (init is None):
         mu = Y.mean(axis=0)
@@ -76,6 +109,15 @@ def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True,
         eta = init.get("eta", np.full(p, 0.5) / nu)
         theta_bar = np.diag(Theta)
 
+    # A warm start can hand in a nu that already collapsed on a previous
+    # rho, which would blow up the first E-step before the M-step floor
+    # below ever runs.
+    nu = np.clip(nu, NU_MIN, 100)
+
+    if nu_fixed is not None:
+        # Overrides both branches, so a warm start cannot carry an estimated
+        # nu in from the previous rho.
+        nu = nu_fixed
 
     hist = {"mu": [], "eta": [], "nu": [], "theta_diag": []}
     it = 0
@@ -91,10 +133,13 @@ def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True,
         M_pos1   = gig_moment(1.0,  lam[None, :], chi, psi[None, :])
         M_neg_half = gig_moment(-0.5, lam[None, :], chi, psi[None, :])
         M_pos_half = gig_moment(0.5,  lam[None, :], chi, psi[None, :])
-        L_log = gig_log_moment_fd(lam[None, :], chi, psi[None, :])
-        
-        # Update parameters mu, gamma  
-       
+        # E[log tau] only enters the nu stationarity equation, so it is not
+        # worth its two extra Bessel evaluations when nu is held fixed.
+        if nu_fixed is None:
+            L_log = gig_log_moment_fd(lam[None, :], chi, psi[None, :])
+
+        # Update parameters mu, gamma
+
         Aj = M_neg1.sum(axis=0)                       # sum_i M_ij(-1)
         Bj = M_pos1.sum(axis=0)                        # sum_i M_ij(1)
         Rj = (M_neg1 * Y).sum(axis=0)                   # sum_i M_ij(-1) Y_ij
@@ -107,9 +152,12 @@ def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True,
         
         # Update parameters nu, eta
 
-        S_j = (L_log + M_neg1).sum(axis=0)
-        nu_new = _solve_nu(S_j, n, p)
-        nu_new = np.clip(nu_new, 1e-3, 100)
+        if nu_fixed is None:
+            S_j = (L_log + M_neg1).sum(axis=0)
+            nu_new = _solve_nu(S_j, n, p)
+            nu_new = np.clip(nu_new, NU_MIN, 100)
+        else:
+            nu_new = nu_fixed
         eta_new = gamma_new / nu_new
         eta_new = np.clip(
             eta_new,
@@ -189,8 +237,18 @@ def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True,
     return {"mu": mu, "eta": eta, "nu": nu, "Theta": Theta, "history": hist,
             "S_tau": S_tau}
 
-def run_em_exact(Y, n_iter=60, rho=0.05, init = None, tol=1e-4, verbose=True):
+def run_em_exact(Y, n_iter=60, rho=0.05, init = None, tol=1e-4, verbose=True,
+                 nu_fixed=None):
+    # nu_fixed holds nu at a known value (scalar or length-p) instead of
+    # estimating it, exactly as in run_em_diagonal: it drops the p brentq
+    # solves in _solve_nu and the gig_log_moment_fd call that feeds them,
+    # L_log having no other consumer. eta is still estimated (gamma keeps
+    # its own M-step, and eta = gamma/nu).
     n, p = Y.shape
+    if nu_fixed is not None:
+        nu_fixed = np.broadcast_to(
+            np.asarray(nu_fixed, dtype=float), (p,)
+        ).copy()
 
     if (init is None):
         mu = Y.mean(axis=0)
@@ -208,6 +266,16 @@ def run_em_exact(Y, n_iter=60, rho=0.05, init = None, tol=1e-4, verbose=True):
         eta = init.get("eta", np.full(p, 0.5) / nu)
         theta_bar = np.diag(Theta)
 
+    # A warm start can hand in a nu that already collapsed on a previous
+    # rho, which would blow up the first E-step before the M-step floor
+    # below ever runs.
+    nu = np.clip(nu, NU_MIN, 100)
+
+    if nu_fixed is not None:
+        # Overrides both branches, so a warm start cannot carry an estimated
+        # nu in from the previous rho.
+        nu = nu_fixed
+
     hist = {"mu": [], "eta": [], "nu": [], "theta_diag": []}
     it = 0
     for it in range(n_iter):
@@ -223,8 +291,11 @@ def run_em_exact(Y, n_iter=60, rho=0.05, init = None, tol=1e-4, verbose=True):
         M_pos1   = gig_moment(1.0,  lam[None, :], chi, psi[None, :])
         M_neg_half = gig_moment(-0.5, lam[None, :], chi, psi[None, :])
         M_pos_half = gig_moment(0.5,  lam[None, :], chi, psi[None, :])
-        L_log = gig_log_moment_fd(lam[None, :], chi, psi[None, :])
-        
+        # E[log tau] only enters the nu stationarity equation, so it is not
+        # worth its two extra Bessel evaluations when nu is held fixed.
+        if nu_fixed is None:
+            L_log = gig_log_moment_fd(lam[None, :], chi, psi[None, :])
+
         # Update parameters mu, gamma  
        
         Theta_off = Theta.copy()
@@ -263,9 +334,11 @@ def run_em_exact(Y, n_iter=60, rho=0.05, init = None, tol=1e-4, verbose=True):
         
         # Update parameters nu, eta
 
-        S_j = (L_log + M_neg1).sum(axis=0)
-
-        nu_new = _solve_nu(S_j, n, p)
+        if nu_fixed is None:
+            S_j = (L_log + M_neg1).sum(axis=0)
+            nu_new = np.clip(_solve_nu(S_j, n, p), NU_MIN, 100)
+        else:
+            nu_new = nu_fixed
         eta_new = gamma_new / nu_new
 
         # Compute the expected S given the first three parameters mu, nu, eta
@@ -1211,7 +1284,7 @@ def run_em_MWGP(
             return n * (np.log(a_j) + 1.0 - digamma(a_j)) - S
 
         nu_new = _solve_nu(S_j, n, p)
-        nu_new = np.clip(nu_new, 1e-3, 100)
+        nu_new = np.clip(nu_new, NU_MIN, 100)
         eta_new = gamma_new / nu_new
         eta_new = np.clip(eta_new,-20,20)
 

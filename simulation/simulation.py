@@ -158,7 +158,6 @@ if __name__ == "__main__":
                 mcmc_thin=1,
                 mcmc_warmup=30,
                 random_state=42,
-                proposal="gig",
             )
         elif args.method == "EM_IMPORTANCE":
             if args.diagnostics:

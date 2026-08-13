@@ -4,7 +4,7 @@ from sklearn.covariance import graphical_lasso
 
 
 def run_tlasso(Y, nu=3.0, n_iter=60, rho=0.05, init = None, verbose=True,
-               tol=1e-5):
+               tol=None):
     """Finegold & Drton (2011), Sec. 4. Classical multivariate t: one divisor
     tau_i per observation, so whole observations get downweighted.
 
@@ -79,7 +79,7 @@ def run_tlasso(Y, nu=3.0, n_iter=60, rho=0.05, init = None, verbose=True,
         if verbose and (it % 5 == 0):
             print(f"iter {it:3d} | param-change {diff:.10f}")
 
-        if rel_change < tol:
+        if tol is not None and rel_change < tol:
             if verbose:
                 print(f"converged at iter {it}: "
                       f"rel change {rel_change:.2e} < tol {tol:.0e}")
@@ -90,7 +90,7 @@ def run_tlasso(Y, nu=3.0, n_iter=60, rho=0.05, init = None, verbose=True,
 
 
 def run_tstar_varlasso(Y, nu=3.0, n_iter=60, rho=0.05, init=None, verbose=True,
-                       tol=1e-5):
+                       tol=None):
     """Finegold & Drton (2011), Sec. 5.3. Alternative t: one divisor tau_ij per
     coordinate, mean-field E-step replacing Theta by its diagonal. Same shape as
     the skewed version, but with eta = 0 the GIG posterior collapses to
@@ -141,7 +141,7 @@ def run_tstar_varlasso(Y, nu=3.0, n_iter=60, rho=0.05, init=None, verbose=True,
         try:
             # See run_tlasso for why enet_tol is pinned below tol.
             cov_glasso, Theta_new = graphical_lasso(
-                S_tau + rho * np.eye(p), alpha=rho, max_iter=200, tol=1e-2,
+                S_tau + rho * np.eye(p), alpha=rho, max_iter=200, tol=1e-3,
                 enet_tol=1e-6,
             )
         except Exception as e:
@@ -163,7 +163,7 @@ def run_tstar_varlasso(Y, nu=3.0, n_iter=60, rho=0.05, init=None, verbose=True,
         if verbose and (it % 5 == 0):
             print(f"iter {it:3d} | param-change {diff:.10f}")
 
-        if rel_change < tol:
+        if tol is not None and rel_change < tol:
             if verbose:
                 print(f"converged at iter {it}: "
                       f"rel change {rel_change:.2e} < tol {tol:.0e}")

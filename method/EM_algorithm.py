@@ -17,66 +17,161 @@ def gig_log_moment_fd(lam, chi, psi, h=1e-4):
     log_den = np.log(kve(lam - h, x))
     return 0.5 * np.log(chi / psi) + (log_num - log_den) / (2 * h)
 
-# Smallest nu the GIG moments can be evaluated at. The moments call
-# kve(lam, x) with lam = -2/nu - 0.5, and for small x that behaves like
-# 0.5 * Gamma(|lam|) * (2/x)^|lam|, which exceeds the double range once
-# |lam| reaches ~96 (x=0.05) to ~170 (x=2). Past that kve returns inf and
-# gig_moment returns inf/inf = nan; in the narrow band just below it,
-# kve(lam) is still finite while kve(lam-1) is not, so a moment comes back
-# +inf and the mixed-sign sums in the M-step hit inf + (-inf) -- the
-# "invalid value encountered in reduce" RuntimeWarning. Either way the fit
-# is destroyed: nan reaches S_tau, graphical_lasso then throws every
-# iteration, and Theta freezes at whatever it was.
-#
-# 0.03 puts |lam| at 67, comfortably under the smallest overflow point.
-# Note this does truncate the model: nu -> 0 makes tau degenerate at 1,
-# i.e. a Gaussian coordinate, so a coordinate that genuinely wants to be
-# Gaussian gets pinned here instead. Watch for nu sitting exactly at the
-# floor -- that is the estimator asking for a region it cannot reach.
-NU_MIN = 0.03
+NU_MIN, NU_MAX = 1e-4, 100.0   # bracket for the nu stationarity root
 
 
-def _solve_nu(S_j, n, p):
+def _solve_nu_eta(S_j, gamma, n, p):
+    """Per-coordinate (nu_j, eta_j, gamma_j) from the nu stationarity condition.
+
+    f(nu) = n * (log a + 1 - digamma(a)) - S_j, with a = 2/nu, is increasing in
+    nu, so the bracket has a root only for S_j strictly between f's two end
+    values (about 1.00002 n and 47.6 n at NU_MIN/NU_MAX). The two ways out of
+    that range are opposite states and do NOT share a fallback:
+
+      * f(NU_MIN) >= 0, i.e. S_j at the low end. Since
+        S_j = sum_i E[log tau_ij] + E[1/tau_ij] and log x + 1/x >= 1 with
+        equality exactly at x = 1, S_j >= n always and this end IS tau_j == 1.
+        Return nu_j = 0, which every method reads as "take the Gaussian path
+        for j", and gamma_j = eta_j = 0 with it: the Gaussian limit has no skew,
+        and leaving gamma_j non-zero would keep the skew in S_tau after the
+        E-step has dropped it.
+      * f(NU_MAX) <= 0: tails heavier than nu = NU_MAX can express. Clamp to
+        the bracket end. Sending this case to nu_j = 0 would report the
+        opposite limit.
+
+    nu_j = 0 is a fixed point: with tau_j == 1 the data cannot inform nu_j
+    again (S_j is pinned at its lower bound), so a coordinate that goes
+    Gaussian stays Gaussian for the rest of the fit.
+    """
 
     def stationarity(nu_j, S):
         a = 2.0 / nu_j
         return n * (np.log(a) + 1.0 - digamma(a)) - S
 
     nu_new = np.empty(p)
+    eta_new = np.empty(p)
+    gamma_new = np.asarray(gamma, dtype=float).copy()
 
     for j in range(p):
         f = lambda x: stationarity(x, S_j[j])
 
-        try:
-            # The bracket starts at NU_MIN, not at an arbitrarily small
-            # number: a root below it is unusable anyway (see NU_MIN), and
-            # bracketing down there is what let nu reach the overflow zone
-            # on the normal return path, where nothing clipped it.
-            nu_new[j] = brentq(
-                f,
-                NU_MIN,
-                100.0,
-                xtol=1e-6
-            )
+        if f(NU_MIN) >= 0.0:                       # Gaussian limit: tau_j == 1
+            nu_new[j] = eta_new[j] = gamma_new[j] = 0.0
+        elif f(NU_MAX) <= 0.0:                     # heavier than the bracket
+            nu_new[j] = NU_MAX
+            eta_new[j] = gamma_new[j] / NU_MAX
+        else:
+            nu_new[j] = brentq(f, NU_MIN, NU_MAX, xtol=1e-6)
+            eta_new[j] = gamma_new[j] / nu_new[j]
 
-        except ValueError:
-            # No sign change in the bracket -- usually the root sits below
-            # NU_MIN. Pin it at the floor rather than crashing.
-            nu_new[j] = np.clip(
-                2.0 / max(S_j[j] / n, 1e-8),
-                NU_MIN,
-                100.0
-            )
+    return nu_new, eta_new, gamma_new
 
-    return nu_new
 
-def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True,
-                    tol=1e-8, nu_fixed=None):
-    # nu_fixed holds nu at a known value (scalar or length-p) instead of
-    # estimating it, which drops both the per-coordinate brentq solve in
-    # _solve_nu and the gig_log_moment_fd evaluation that feeds it -- L_log is
-    # used for nothing else. eta is still estimated: it is gamma/nu, and gamma
-    # keeps its own M-step.
+def _tau_moments(nu, eta, theta_diag, resid):
+    """E-step moments of tau: (M_neg1, M_pos1, M_neg_half, M_pos_half, L_log).
+
+    Three branches. They are one law -- tau_j | Y ~ GIG(lam, chi, psi) with
+    lam = -2/nu_j - 0.5, chi_ij = 4/nu_j + theta_jj (Y_ij - mu_j)^2,
+    psi_j = theta_jj gamma_j^2 -- at three regimes, each a limit of the one
+    above it:
+
+      nu_j == 0   GAUSSIAN. tau_j is the point mass at 1, so E[tau_j^r] = 1 and
+                  E[log tau_j] = 0. A model state, not a numerical dodge:
+                  _solve_nu_eta sets it, and it pins gamma_j = 0 with it. The
+                  limits are substituted rather than approached, since
+                  lam = -inf at nu_j = 0.
+      overflow    INVERSE-GAMMA. The psi -> 0 limit of the GIG is
+                  InvGamma(|lam|, chi/2), whose moments are closed form and
+                  evaluate in log space. Taken ONLY per (i, j) entry where the
+                  Bessel ratio is not representable, so the exact GIG is kept
+                  everywhere it works.
+      otherwise   GIG, unchanged.
+
+    What "overflow" means here: gig_moment returns kve(lam + r, x)/kve(lam, x)
+    with x = sqrt(chi psi). That RATIO is perfectly well behaved -- it is ~1 in
+    the cases that break -- but its two halves need not be:
+    K_v(x) ~ Gamma(v)/2 (2/x)^v for a large order and a small argument, so both
+    sides run past the largest double and the ratio evaluates to inf/inf = NaN.
+    (kve's exp(x) scaling is no help; it defends against large-x underflow, and
+    here x is tiny.) It takes BOTH a near-Gaussian coordinate (nu_j small, so
+    |lam| = 2/nu_j + 0.5 is large) and a near-symmetric one (gamma_j small, so
+    x is small) -- either alone is fine, which is why it strikes only
+    intermittently, on whichever coordinates happen to sit in that corner.
+
+    The branch is chosen from the COMPUTED values, not from a predicted
+    magnitude: scipy's kve gives out well below DBL_MAX (around K ~ 1e300 here)
+    and where it gives out depends on the order, so a threshold on the
+    asymptotic log K either fires early -- discarding an exact GIG value the
+    InvGamma limit only matches to ~1e-4 -- or fires late, which is a NaN. The
+    finiteness test has neither failure mode, and it keeps the exact GIG on
+    every entry that has one.
+
+    Wherever it does fire, |lam| is large and x is small, which is exactly
+    where the InvGamma limit is sharp. Overflow needs |lam| > 40 or so, well
+    above r, so gammaln(|lam| - r) is never asked for a non-positive argument.
+    """
+    n, p = resid.shape
+    M = {r: np.ones((n, p)) for r in (-1.0, 1.0, -0.5, 0.5)}
+    L_log = np.zeros((n, p))
+
+    t = np.asarray(nu) > 0.0                      # not on the Gaussian path
+    if not t.any():
+        return M[-1.0], M[1.0], M[-0.5], M[0.5], L_log
+
+    cols = np.flatnonzero(t)
+    lam = -2.0 / nu[t] - 0.5                                            # (k,)
+    chi = 4.0 / nu[t][None, :] + theta_diag[t][None, :] * resid[:, t] ** 2
+    # The clip keeps chi/psi finite in gig_moment for an exactly symmetric
+    # coordinate; the InvGamma branch does not use psi at all.
+    psi = np.clip(theta_diag[t] * eta[t] ** 2 * nu[t] ** 2, 1e-12, None)  # (k,)
+
+    # The GIG everywhere first, with the overflow left to happen quietly.
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        blocks = {r: gig_moment(r, lam[None, :], chi, psi[None, :]) for r in M}
+        L_blk = gig_log_moment_fd(lam[None, :], chi, psi[None, :])
+
+    # Entries the GIG could not represent. Testing all five catches the one
+    # silent case too: when the DENOMINATOR kve(lam, x) overflows on its own,
+    # the r = +1 moment comes back as a finite 0 rather than NaN -- but the
+    # r = -1 moment shares that denominator with a larger numerator, so it is
+    # inf/inf = NaN and the entry is flagged regardless.
+    ig = ~np.isfinite(L_blk)
+    for r in blocks:
+        ig |= ~np.isfinite(blocks[r])
+
+    if ig.any():
+        # psi -> 0 limit: tau ~ InvGamma(a, b) with a = |lam|, b = chi/2, so
+        # E[tau^r] = b^r Gamma(a - r)/Gamma(a) and E[log tau] = log b - psi(a),
+        # both evaluated in log space.
+        a_f = np.broadcast_to(-lam, chi.shape)[ig]
+        log_b = np.log(chi[ig] / 2.0)
+        for r in blocks:
+            blocks[r][ig] = np.exp(r * log_b + gammaln(a_f - r) - gammaln(a_f))
+        L_blk[ig] = log_b - digamma(a_f)
+
+    for r in blocks:
+        M[r][:, cols] = blocks[r]
+    L_log[:, cols] = L_blk
+
+    return M[-1.0], M[1.0], M[-0.5], M[0.5], L_log
+
+
+def _solve_mu_gamma(H, b, gauss, p):
+    """Solve the joint 2p x 2p (mu, gamma) system with gamma pinned at 0 where
+    tau_j == 1.
+
+    With tau_j == 1 every moment of tau_j is 1, so the mu_j and gamma_j rows and
+    columns of H coincide: only mu_j + gamma_j is identified and H is singular.
+    Pinning gamma_j = 0 -- the Gaussian limit has no skew -- drops row and
+    column p + j, and mu_j carries the location on its own.
+    """
+    keep = np.concatenate([np.ones(p, dtype=bool), ~gauss])
+    sol = np.zeros(2 * p)
+    sol[keep] = np.linalg.solve(H[np.ix_(keep, keep)], b[keep])
+    return sol[:p], sol[p:]
+
+def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True, nu_fixed = None,
+                    tol=None):
     # tol stops the EM once the relative L1 change of (mu, Theta) in one step
     # falls below it. eta/nu are deliberately excluded from the criterion:
     # eta drifts by ~1 (L1) per iteration essentially forever, so any rule
@@ -88,10 +183,6 @@ def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True,
     # one true edge of the reference, which is the same magnitude as the
     # reference's own residual drift. tol=0 restores fixed-n_iter behavior.
     n, p = Y.shape
-    if nu_fixed is not None:
-        nu_fixed = np.broadcast_to(
-            np.asarray(nu_fixed, dtype=float), (p,)
-        ).copy()
 
     if (init is None):
         mu = Y.mean(axis=0)
@@ -106,37 +197,23 @@ def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True,
         # mu/Theta forward without letting nu ratchet down across steps.
         mu, Theta = init["mu"], init["Theta"]
         nu = init.get("nu", np.full(p, 0.5))
-        eta = init.get("eta", np.full(p, 0.5) / nu)
+        # eta = gamma/nu with the cold-start gamma = 0.5, except on the Gaussian
+        # path, which carries no skew. The guard also keeps the default from
+        # dividing by a zero nu when init does supply eta.
+        eta = init.get("eta", np.where(nu > 0.0, 0.5 / np.where(nu > 0.0, nu, 1.0), 0.0))
         theta_bar = np.diag(Theta)
 
-    # A warm start can hand in a nu that already collapsed on a previous
-    # rho, which would blow up the first E-step before the M-step floor
-    # below ever runs.
-    nu = np.clip(nu, NU_MIN, 100)
-
     if nu_fixed is not None:
-        # Overrides both branches, so a warm start cannot carry an estimated
-        # nu in from the previous rho.
         nu = nu_fixed
-
     hist = {"mu": [], "eta": [], "nu": [], "theta_diag": []}
     it = 0
     for it in range(n_iter):
-        # Compute GIG parameters 
-        lam = -2.0 / nu - 0.5                                   # (p,)
-        chi = 4.0 / nu[None, :] + theta_bar[None, :] * (Y - mu[None, :]) ** 2   # (n,p)
-        psi = np.clip(theta_bar * eta ** 2 * nu ** 2, 1e-12, None)               # (p,)\
-            
-        # Compute expectations
+        # Compute GIG parameters (nu_j == 0 takes the Gaussian path instead)
+        gauss = nu <= 0.0
 
-        M_neg1   = gig_moment(-1.0, lam[None, :], chi, psi[None, :])
-        M_pos1   = gig_moment(1.0,  lam[None, :], chi, psi[None, :])
-        M_neg_half = gig_moment(-0.5, lam[None, :], chi, psi[None, :])
-        M_pos_half = gig_moment(0.5,  lam[None, :], chi, psi[None, :])
-        # E[log tau] only enters the nu stationarity equation, so it is not
-        # worth its two extra Bessel evaluations when nu is held fixed.
-        if nu_fixed is None:
-            L_log = gig_log_moment_fd(lam[None, :], chi, psi[None, :])
+        # Compute expectations
+        M_neg1, M_pos1, M_neg_half, M_pos_half, L_log = _tau_moments(
+            nu, eta, theta_bar, Y - mu[None, :])
 
         # Update parameters mu, gamma
 
@@ -149,21 +226,18 @@ def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True,
         denom = np.maximum(denom, 1e-4 * n ** 2)
         mu_new = (Bj * Rj - n * Tj) / denom
         gamma_new = (Aj * Tj - n * Rj) / denom
-        
+
+        # Gaussian path: with tau_j == 1 the two equations above are the same
+        # equation (Aj = Bj = n, so denom collapses), and only mu_j + gamma_j is
+        # identified. gamma_j is pinned at 0, which leaves the sample mean.
+        if gauss.any():
+            mu_new[gauss] = Tj[gauss] / n
+            gamma_new[gauss] = 0.0
+
         # Update parameters nu, eta
 
-        if nu_fixed is None:
-            S_j = (L_log + M_neg1).sum(axis=0)
-            nu_new = _solve_nu(S_j, n, p)
-            nu_new = np.clip(nu_new, NU_MIN, 100)
-        else:
-            nu_new = nu_fixed
-        eta_new = gamma_new / nu_new
-        eta_new = np.clip(
-            eta_new,
-            -20,
-            20
-        )
+        S_j = (L_log + M_neg1).sum(axis=0)
+        nu_new, eta_new, gamma_new = _solve_nu_eta(S_j, gamma_new, n, p)
 
         # Compute the expected S given the first three parameters mu, nu, eta
         z_mean = (
@@ -184,25 +258,12 @@ def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True,
 
         S_tau += 1e-10 * np.eye(p) 
         
-        # off_diag = ~np.eye(p, dtype=bool)
-        # print(f"max|S_ij| (off-diag): {np.max(np.abs(S_tau[off_diag]))}, rho: {rho}")
-        
-        
         # Glasso step to estimate Theta. sklearn penalizes off-diagonals only;
         # adding rho*I recovers the fully penalized objective, since
         # tr(S Theta) + rho * sum_j theta_jj = tr((S + rho I) Theta).
-        #
-        # enet_tol (inner coordinate-descent accuracy) has to sit well below
-        # tol (outer dual-gap target). sklearn checks |dual gap| < tol, but the
-        # gap is computed from a precision matrix that the inner solver only
-        # resolved to enet_tol, which puts a floor of a few times enet_tol
-        # under |gap|. At the 1e-4 default that floor straddles tol=1e-3: the
-        # gap stalls (often negative) and every call burns all max_iter sweeps
-        # at the optimum. 1e-6 puts the floor ~1e-5; 1e-8 is no better.
         try:
             cov_glasso, Theta_new = graphical_lasso(
-                S_tau + rho * np.eye(p), alpha=rho, max_iter=200, tol=1e-3,
-                enet_tol=1e-6,
+                S_tau + rho * np.eye(p), alpha=rho, max_iter=200, tol=1e-3,enet_tol=1e-6,
             )
         except Exception as e:
             if verbose:
@@ -228,7 +289,7 @@ def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True,
         if verbose and (it % 5 == 0):
             print(f"iter {it:3d} | param-change {diff:.10f}")
 
-        if rel_change < tol:
+        if tol is not None and rel_change < tol:
             if verbose:
                 print(f"converged at iter {it}: "
                       f"rel change {rel_change:.2e} < tol {tol:.0e}")
@@ -237,18 +298,8 @@ def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True,
     return {"mu": mu, "eta": eta, "nu": nu, "Theta": Theta, "history": hist,
             "S_tau": S_tau}
 
-def run_em_exact(Y, n_iter=60, rho=0.05, init = None, tol=1e-4, verbose=True,
-                 nu_fixed=None):
-    # nu_fixed holds nu at a known value (scalar or length-p) instead of
-    # estimating it, exactly as in run_em_diagonal: it drops the p brentq
-    # solves in _solve_nu and the gig_log_moment_fd call that feeds them,
-    # L_log having no other consumer. eta is still estimated (gamma keeps
-    # its own M-step, and eta = gamma/nu).
+def run_em_exact(Y, n_iter=60, rho=0.05, init = None, tol=None, verbose=True):
     n, p = Y.shape
-    if nu_fixed is not None:
-        nu_fixed = np.broadcast_to(
-            np.asarray(nu_fixed, dtype=float), (p,)
-        ).copy()
 
     if (init is None):
         mu = Y.mean(axis=0)
@@ -263,38 +314,23 @@ def run_em_exact(Y, n_iter=60, rho=0.05, init = None, tol=1e-4, verbose=True,
         # mu/Theta forward without letting nu ratchet down across steps.
         mu, Theta = init["mu"], init["Theta"]
         nu = init.get("nu", np.full(p, 0.5))
-        eta = init.get("eta", np.full(p, 0.5) / nu)
+        # eta = gamma/nu with the cold-start gamma = 0.5, except on the Gaussian
+        # path, which carries no skew. The guard also keeps the default from
+        # dividing by a zero nu when init does supply eta.
+        eta = init.get("eta", np.where(nu > 0.0, 0.5 / np.where(nu > 0.0, nu, 1.0), 0.0))
         theta_bar = np.diag(Theta)
-
-    # A warm start can hand in a nu that already collapsed on a previous
-    # rho, which would blow up the first E-step before the M-step floor
-    # below ever runs.
-    nu = np.clip(nu, NU_MIN, 100)
-
-    if nu_fixed is not None:
-        # Overrides both branches, so a warm start cannot carry an estimated
-        # nu in from the previous rho.
-        nu = nu_fixed
 
     hist = {"mu": [], "eta": [], "nu": [], "theta_diag": []}
     it = 0
     for it in range(n_iter):
         theta_diag = np.diag(Theta)
 
-        # Compute GIG parameters 
-        lam = -2.0 / nu - 0.5
-        chi = 4.0 / nu[None, :] + theta_diag[None, :] * (Y - mu[None, :]) ** 2
-        psi = np.clip(theta_diag * eta ** 2 * nu ** 2, 1e-12, None)
-        
+        # Compute GIG parameters (nu_j == 0 takes the Gaussian path instead)
+        gauss = nu <= 0.0
+
         # Compute expectations
-        M_neg1   = gig_moment(-1.0, lam[None, :], chi, psi[None, :])
-        M_pos1   = gig_moment(1.0,  lam[None, :], chi, psi[None, :])
-        M_neg_half = gig_moment(-0.5, lam[None, :], chi, psi[None, :])
-        M_pos_half = gig_moment(0.5,  lam[None, :], chi, psi[None, :])
-        # E[log tau] only enters the nu stationarity equation, so it is not
-        # worth its two extra Bessel evaluations when nu is held fixed.
-        if nu_fixed is None:
-            L_log = gig_log_moment_fd(lam[None, :], chi, psi[None, :])
+        M_neg1, M_pos1, M_neg_half, M_pos_half, L_log = _tau_moments(
+            nu, eta, theta_diag, Y - mu[None, :])
 
         # Update parameters mu, gamma  
        
@@ -328,18 +364,13 @@ def run_em_exact(Y, n_iter=60, rho=0.05, init = None, tol=1e-4, verbose=True,
             [H_gamma_mu, H_gamma_gamma],
         ])
         b = np.concatenate([b_mu, b_gamma])
-        mu_gamma_new = np.linalg.solve(H, b)
-        mu_new = mu_gamma_new[:p]
-        gamma_new = mu_gamma_new[p:]
-        
+        mu_new, gamma_new = _solve_mu_gamma(H, b, gauss, p)
+
         # Update parameters nu, eta
 
-        if nu_fixed is None:
-            S_j = (L_log + M_neg1).sum(axis=0)
-            nu_new = np.clip(_solve_nu(S_j, n, p), NU_MIN, 100)
-        else:
-            nu_new = nu_fixed
-        eta_new = gamma_new / nu_new
+        S_j = (L_log + M_neg1).sum(axis=0)
+
+        nu_new, eta_new, gamma_new = _solve_nu_eta(S_j, gamma_new, n, p)
 
         # Compute the expected S given the first three parameters mu, nu, eta
         z_mean = (
@@ -368,10 +399,7 @@ def run_em_exact(Y, n_iter=60, rho=0.05, init = None, tol=1e-4, verbose=True,
             # tol is sklearn's 1e-4 default, so the 1e-4 enet_tol default left
             # the gap floor above it and every call ran all 1000 sweeps.
             _, Theta_new = graphical_lasso(S_tau + rho * np.eye(p),
-                                           alpha=rho,
-                                           # alpha=2 * rho / n,
-                                           max_iter=1000,
-                                           enet_tol=1e-6)
+                                           alpha=rho, max_iter=200, tol=1e-3, enet_tol=1e-6,)
         except Exception as e:
             if verbose:
                 print(f"  [warn] glasso failed at iter {it}: {e}; keeping previous Theta")
@@ -394,7 +422,7 @@ def run_em_exact(Y, n_iter=60, rho=0.05, init = None, tol=1e-4, verbose=True,
         if verbose and (it % 5 == 0):
             print(f"iter {it:3d} | param-change {diff:.10f}")
 
-        if rel_change < tol:
+        if tol is not None and rel_change < tol:
             if verbose:
                 print(f"converged at iter {it}: "
                       f"rel change {rel_change:.2e} < tol {tol:.0e}")
@@ -938,11 +966,9 @@ def run_em_MWGP(
     mcmc_samples=200,
     mcmc_thin=2,
     random_state=42,
-    proposal="gig",       # "gig" (recommended) or "laplace"
     b_min=0.05,           # sqrt(chi*psi) threshold for the InvGamma path
-    refresh_every=250,    # periodic refresh of cached W = Z @ Theta (laplace)
     proposal_bytes=128e6, # per-array cap on the pre-generated proposal batch
-    tol=6e-3,             # stop once ll rel-change < tol for `patience` iters
+    tol=None,             # stop once ll rel-change < tol for `patience` iters
     patience=5,
 ):
     # tol/patience: the MC E-step gives ll_change a noise floor (~4-6e-3 at
@@ -1007,18 +1033,24 @@ def run_em_MWGP(
                costs one gemm Z @ Theta[:, S] instead of |S| masked
                rank-1 scatters into a cached W, which is what made the
                old loop O(sweeps * n * p^2) with fancy-indexing
-               constants. No cached W means no fp drift and no
-               refresh_every.
+               constants. No cached W means no fp drift and nothing
+               to refresh periodically.
           (S4) per-coordinate constants (the InvGamma masks, the sliced
                Theta columns) are hoisted out of the sweep loop.
         """
         n, p = Y.shape
-        a = 2.0 / nu
+        # Gaussian path: tau_j == 1, i.e. log tau_j == 0 with no randomness, so
+        # coordinate j is held at 0 and never proposed for. The placeholder in
+        # nu keeps lam/chi finite for the vectorised prep below; every array it
+        # touches is dropped from `classes`, so the value is never used.
+        gauss = nu <= 0.0
+        a = 2.0 / np.where(gauss, 1.0, nu)
         beta = a
         residual = Y - mu
         theta_diag = np.diag(Theta).copy()
 
         U = state.copy()
+        U[:, gauss] = 0.0
         Z = np.exp(-U / 2.0) * residual - np.exp(U / 2.0) * gamma
 
         lam = -a - 0.5
@@ -1029,16 +1061,18 @@ def run_em_MWGP(
         tau_cur = np.exp(U) if use_ig.any() else None
 
         # ---------- (S3)/(S4) per-class constants --------------------
-        classes = [
-            (
+        classes = []
+        for S in _color_classes(Theta):
+            S = S[~gauss[S]]                     # Gaussian coordinates: nothing to sample
+            if S.size == 0:
+                continue
+            classes.append((
                 S,
                 np.ascontiguousarray(Theta[:, S]),   # (p, |S|)
                 theta_diag[S][None, :],
                 psi[S][None, :],
                 use_ig[:, S] if use_ig[:, S].any() else None,
-            )
-            for S in _color_classes(Theta)
-        ]
+            ))
 
         total_sweeps = burn + samples * thin
 
@@ -1046,8 +1080,8 @@ def run_em_MWGP(
         # Three arrays of (chunk, n, p) stay live, so peak is ~3x
         # proposal_bytes.
         chunk = max(1, min(total_sweeps, int(proposal_bytes // (n * p * 8))))
-        prop_U = np.empty((chunk, n, p))
-        prop_Z = np.empty((chunk, n, p))
+        prop_U = np.zeros((chunk, n, p))   # zeros, not empty: the Gaussian
+        prop_Z = np.empty((chunk, n, p))   # columns are never written below
         scratch = np.empty((chunk, n, p))
 
         draws = np.empty((samples, n, p))
@@ -1061,6 +1095,8 @@ def run_em_MWGP(
             pU, pZ, tmp = prop_U[:cs], prop_Z[:cs], scratch[:cs]
 
             for j in range(p):
+                if gauss[j]:                          # held at log tau_j = 0
+                    continue
                 ig = use_ig[:, j]
                 n_ig = int(ig.sum())
                 if n_ig < n:                          # exact-GIG sites
@@ -1126,90 +1162,6 @@ def run_em_MWGP(
         return draws, U, acceptance_rate
 
     # =================================================================
-    # E-step sampler: Laplace-normal independence proposal (fallback)
-    # =================================================================
-    def _sample_log_tau_laplace(
-        Y, mu, gamma, nu, Theta, state, burn, samples, thin, rng,
-    ):
-        """Batched/cached Laplace-normal version (see em_mwgp_fast.py
-        for the fully commented derivation of S1-S3)."""
-        n, p = Y.shape
-        a = 2.0 / nu
-        beta = a
-        residual = Y - mu
-
-        U = state.copy()
-        Z = np.exp(-U / 2.0) * residual - np.exp(U / 2.0) * gamma
-
-        lam = -a - 0.5
-        chi = 2.0 * beta[None, :] + residual**2 * np.diag(Theta)[None, :]
-        psi = np.diag(Theta) * gamma**2
-        sqrt_term = np.sqrt(lam[None, :] ** 2 + chi * psi[None, :])
-        tau_mode = chi / (sqrt_term - lam[None, :])
-        proposal_mean = np.log(tau_mode)
-        proposal_sd = np.sqrt(
-            2.0 / (chi / tau_mode + psi[None, :] * tau_mode)
-        )
-
-        g_old = -(a + 0.5)[None, :] * U - beta[None, :] * np.exp(-U)
-        logq_old = -0.5 * ((U - proposal_mean) / proposal_sd) ** 2
-        W = Z @ Theta
-
-        draws = np.empty((samples, n, p))
-        accepted_count = np.zeros(p)
-        proposed_count = np.zeros(p)
-        saved = 0
-        total_sweeps = burn + samples * thin
-
-        for sweep in range(total_sweeps):
-            if sweep > 0 and sweep % refresh_every == 0:
-                W = Z @ Theta
-
-            New = proposal_mean + proposal_sd * rng.standard_normal((n, p))
-            LogUnif = np.log(rng.random((n, p)))
-            Valid = np.isfinite(New) & (np.abs(New) < 30.0)
-            NewC = np.clip(New, -30.0, 30.0)
-
-            New_z = (
-                np.exp(-NewC / 2.0) * residual
-                - np.exp(NewC / 2.0) * gamma[None, :]
-            )
-            g_new = -(a + 0.5)[None, :] * NewC - beta[None, :] * np.exp(-NewC)
-            logq_new = -0.5 * ((New - proposal_mean) / proposal_sd) ** 2
-
-            for j in range(p):
-                delta_z = New_z[:, j] - Z[:, j]
-                delta_quad = 2.0 * delta_z * W[:, j] + Theta[j, j] * delta_z**2
-                log_alpha = (
-                    (g_new[:, j] - g_old[:, j])
-                    - 0.5 * delta_quad
-                    + (logq_old[:, j] - logq_new[:, j])
-                )
-                accept = Valid[:, j] & (
-                    LogUnif[:, j] < np.minimum(0.0, log_alpha)
-                )
-                if accept.any():
-                    W[accept] += delta_z[accept, None] * Theta[j][None, :]
-                    U[accept, j] = New[accept, j]
-                    Z[accept, j] = New_z[accept, j]
-                    g_old[accept, j] = g_new[accept, j]
-                    logq_old[accept, j] = logq_new[accept, j]
-                if sweep >= burn:
-                    accepted_count[j] += accept.sum()
-                    proposed_count[j] += n
-
-            if sweep >= burn and (sweep - burn) % thin == 0:
-                draws[saved] = U
-                saved += 1
-
-        acceptance_rate = accepted_count / np.maximum(proposed_count, 1.0)
-        return draws, U, acceptance_rate
-
-    _sampler = (
-        _sample_log_tau_gig if proposal == "gig" else _sample_log_tau_laplace
-    )
-
-    # =================================================================
     # EM driver (unchanged from your version)
     # =================================================================
     n, p = Y.shape
@@ -1246,7 +1198,7 @@ def run_em_MWGP(
         # ============================ MCMC E-step ====================
         burn = mcmc_burn if it == 0 else mcmc_warmup
 
-        log_tau_draws, state, acceptance_rate = _sampler(
+        log_tau_draws, state, acceptance_rate = _sample_log_tau_gig(
             Y=Y, mu=mu, gamma=gamma, nu=nu, Theta=Theta,
             state=state, burn=burn, samples=mcmc_samples,
             thin=mcmc_thin, rng=rng,
@@ -1270,23 +1222,19 @@ def run_em_MWGP(
         b_gamma = np.einsum("sij,sij->j", B, Theta_AY) / mcmc_samples
         b_vec = np.concatenate([b_mu, b_gamma])
 
-        mu_gamma_new = np.linalg.solve(H, b_vec)
-        mu_new = mu_gamma_new[:p]
-        gamma_new = mu_gamma_new[p:]
+        mu_new, gamma_new = _solve_mu_gamma(H, b_vec, nu <= 0.0, p)
 
         # ===================== Update nu and eta =====================
         M_neg1 = np.mean(A**2, axis=0)
         L_log = np.mean(log_tau_draws, axis=0)
         S_j = (L_log + M_neg1).sum(axis=0)
 
-        def stationarity(nu_j, S):
-            a_j = 2.0 / nu_j
-            return n * (np.log(a_j) + 1.0 - digamma(a_j)) - S
-
-        nu_new = _solve_nu(S_j, n, p)
-        nu_new = np.clip(nu_new, NU_MIN, 100)
-        eta_new = gamma_new / nu_new
-        eta_new = np.clip(eta_new,-20,20)
+        nu_new, eta_new, gamma_new = _solve_nu_eta(S_j, gamma_new, n, p)
+        # The floor applies to the sampled coordinates only: nu_j = 0 is the
+        # Gaussian flag, not a small nu, and clipping it up would put the
+        # sampler back on a GIG it cannot represent.
+        nu_new = np.where(nu_new > 0.0, np.clip(nu_new, 1e-3, NU_MAX), 0.0)
+        eta_new = np.clip(eta_new, -20, 20)
 
         # ==================== Compute expected S_tau =================
         Zs = (
@@ -1325,7 +1273,13 @@ def run_em_MWGP(
         #            sum_i E[z^T Theta z] = n * <S_tau, Theta_new>.
         # Only slogdet(Theta_new) and the Inv-Gamma normalizer (gammaln) are
         # new, both O(p); no extra pass over the (samples, n, p) draws.
-        a_nu = 2.0 / nu_new
+        # Every tau term below is summed over the SAMPLED coordinates only: a
+        # Gaussian coordinate has tau_j == 1 with no Inv-Gamma prior to score,
+        # so it contributes a constant, and a_j = 2/nu_j is infinite there --
+        # a_j log a_j - gammaln(a_j) would be inf - inf, i.e. NaN, and the
+        # stopping rule would then silently never fire.
+        t = nu_new > 0.0
+        a_nu = 2.0 / nu_new[t]
         _, logdet = np.linalg.slogdet(Theta_new)
         quad = n * np.sum(S_tau * Theta_new)          # sum_i E[z^T Theta z]
         ll_new = (
@@ -1336,8 +1290,8 @@ def run_em_MWGP(
             )
             - 0.5 * L_log.sum()                        # -(1/2) sum_j log tau_j
             - 0.5 * quad                               # -(1/2) z^T Theta z
-            - np.sum((a_nu[None, :] + 1.0) * L_log)    # -(a_j+1) log tau_j
-            - np.sum(a_nu[None, :] * M_neg1)           # -a_j / tau_j
+            - np.sum((a_nu[None, :] + 1.0) * L_log[:, t])   # -(a_j+1) log tau_j
+            - np.sum(a_nu[None, :] * M_neg1[:, t])          # -a_j / tau_j
         )
 
         # Relative change in the expected complete-data log-likelihood. The
@@ -1367,7 +1321,8 @@ def run_em_MWGP(
                 f"acceptance-rate {np.round(acceptance_rate, 3)}"
             )
 
-        stall = stall + 1 if ll_change < tol else 0
+        # tol=None means "no stopping rule", same as in the other methods.
+        stall = stall + 1 if (tol is not None and ll_change < tol) else 0
         if stall >= patience:
             if verbose:
                 print(f"stopped at iter {it}: ll rel-change < {tol:.0e} "

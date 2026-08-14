@@ -57,7 +57,7 @@ def _solve_nu_ecm(gap):
 
 
 def run_tlasso(Y, nu=3.0, n_iter=60, rho=0.05, init = None, verbose=True,
-               tol=None):
+               tol=None, warning=True):
     """Finegold & Drton (2011), Sec. 4. Classical multivariate t: one divisor
     tau_i per observation, so whole observations get downweighted.
 
@@ -103,6 +103,9 @@ def run_tlasso(Y, nu=3.0, n_iter=60, rho=0.05, init = None, verbose=True,
         nu = 3.0 if init is None else float(init.get("nu", 3.0))
 
     hist = {"mu": [], "theta_diag": [], "tau": [], "nu": []}
+    # Counts iterations whose Theta is STALE because the glasso call raised:
+    # what gets reported at this rho is then not the fit that was requested.
+    n_glasso_fail = 0
     it = 0
     for it in range(n_iter):
         # E-step: tau_i = (nu + p) / (nu + delta_i)
@@ -139,8 +142,12 @@ def run_tlasso(Y, nu=3.0, n_iter=60, rho=0.05, init = None, verbose=True,
                 enet_tol=1e-6,
             )
         except Exception as e:
-            if verbose:
+            # `warning`, not `verbose` -- see run_em_diagonal. The ROC sweeps
+            # run verbose=False, and a stale Theta being recorded as a fit is
+            # exactly what a sweep needs to be told about.
+            if warning:
                 print(f"  [warn] glasso failed at iter {it}: {e}; keeping previous Theta")
+            n_glasso_fail += 1
             Theta_new = Theta
 
         # CM step for nu, off the same E-step moments the glasso call used.
@@ -176,11 +183,12 @@ def run_tlasso(Y, nu=3.0, n_iter=60, rho=0.05, init = None, verbose=True,
             break
 
     return {"mu": mu, "nu": nu, "Theta": Theta, "tau": tau, "history": hist,
-            "S_tau": S_tau}
+            "S_tau": S_tau, "n_glasso_fail": n_glasso_fail,
+            "n_iter_run": it + 1}
 
 
 def run_tstar_varlasso(Y, nu=3.0, n_iter=60, rho=0.05, init=None, verbose=True,
-                       tol=None):
+                       tol=None, warning=True):
     """Finegold & Drton (2011), Sec. 5.3. Alternative t: one divisor tau_ij per
     coordinate, mean-field E-step replacing Theta by its diagonal. Same shape as
     the skewed version, but with eta = 0 the GIG posterior collapses to
@@ -232,6 +240,9 @@ def run_tstar_varlasso(Y, nu=3.0, n_iter=60, rho=0.05, init=None, verbose=True,
         nu = 3.0 if init is None else float(init.get("nu", 3.0))
 
     hist = {"mu": [], "theta_diag": [], "tau": [], "nu": []}
+    # Counts iterations whose Theta is STALE because the glasso call raised:
+    # what gets reported at this rho is then not the fit that was requested.
+    n_glasso_fail = 0
     it = 0
     for it in range(n_iter):
         # alpha/beta move with nu, so both are rebuilt every iteration; with nu
@@ -269,8 +280,12 @@ def run_tstar_varlasso(Y, nu=3.0, n_iter=60, rho=0.05, init=None, verbose=True,
                 enet_tol=1e-6,
             )
         except Exception as e:
-            if verbose:
+            # `warning`, not `verbose` -- see run_em_diagonal. The ROC sweeps
+            # run verbose=False, and a stale Theta being recorded as a fit is
+            # exactly what a sweep needs to be told about.
+            if warning:
                 print(f"  [warn] glasso failed at iter {it}: {e}; keeping previous Theta")
+            n_glasso_fail += 1
             Theta_new = Theta
 
         # CM step for nu, off the same E-step moments the glasso call used.
@@ -305,4 +320,5 @@ def run_tstar_varlasso(Y, nu=3.0, n_iter=60, rho=0.05, init=None, verbose=True,
             break
 
     return {"mu": mu, "nu": nu, "Theta": Theta, "tau": M_pos1, "history": hist,
-            "S_tau": S_tau}
+            "S_tau": S_tau, "n_glasso_fail": n_glasso_fail,
+            "n_iter_run": it + 1}

@@ -25,8 +25,16 @@ def _solve_nu_eta(S_j, gamma, n, p):
 
     f(nu) = n * (log a + 1 - digamma(a)) - S_j, with a = 2/nu, is increasing in
     nu, so the bracket has a root only for S_j strictly between f's two end
-    values (about 1.00002 n and 47.6 n at NU_MIN/NU_MAX). The two ways out of
-    that range are opposite states and do NOT share a fallback:
+    values (about 1.00003 n and 1.5772 n at NU_MIN/NU_MAX). That window is
+    narrow, and deliberately worth stating: the whole range of nu from NU_MIN to
+    NU_MAX is encoded in S_j/n on (1.00003, 1.5772), so the map is stiff. A
+    coordinate at nu_j = 0.375 sits at S_j/n = 1.0967, leaving only 0.48 of
+    headroom before the NU_MAX branch fires -- and S_j/n grows like log(chi),
+    so a theta_jj inflated by a factor of ~1.6 is enough to spend it. Callers
+    that sweep rho toward 0 with p > n need to watch `n_clamped` for this.
+
+    The two ways out of that range are opposite states and do NOT share a
+    fallback:
 
       * f(NU_MIN) >= 0, i.e. S_j at the low end. Since
         S_j = sum_i E[log tau_ij] + E[1/tau_ij] and log x + 1/x >= 1 with
@@ -42,6 +50,14 @@ def _solve_nu_eta(S_j, gamma, n, p):
     nu_j = 0 is a fixed point: with tau_j == 1 the data cannot inform nu_j
     again (S_j is pinned at its lower bound), so a coordinate that goes
     Gaussian stays Gaussian for the rest of the fit.
+
+    Returns (nu, eta, gamma, n_clamped); n_clamped counts the NU_MAX branch.
+    That branch is not a numerical dodge -- it is the correct answer to the
+    stationarity condition as posed -- but in THIS parameterization NU_MAX is
+    the heaviest expressible tail, so landing there feeds heavier weights back
+    into the next E-step. (In tlasso.py the same clamp lands on the Gaussian
+    limit, which is self-limiting instead.) A non-zero count is therefore a
+    signal that the input S_j has degenerated, not that this solver failed.
     """
 
     def stationarity(nu_j, S):
@@ -51,6 +67,7 @@ def _solve_nu_eta(S_j, gamma, n, p):
     nu_new = np.empty(p)
     eta_new = np.empty(p)
     gamma_new = np.asarray(gamma, dtype=float).copy()
+    n_clamped = 0
 
     for j in range(p):
         f = lambda x: stationarity(x, S_j[j])
@@ -60,11 +77,12 @@ def _solve_nu_eta(S_j, gamma, n, p):
         elif f(NU_MAX) <= 0.0:                     # heavier than the bracket
             nu_new[j] = NU_MAX
             eta_new[j] = gamma_new[j] / NU_MAX
+            n_clamped += 1
         else:
             nu_new[j] = brentq(f, NU_MIN, NU_MAX, xtol=1e-6)
             eta_new[j] = gamma_new[j] / nu_new[j]
 
-    return nu_new, eta_new, gamma_new
+    return nu_new, eta_new, gamma_new, n_clamped
 
 
 def _tau_moments(nu, eta, theta_diag, resid):
@@ -171,7 +189,7 @@ def _solve_mu_gamma(H, b, gauss, p):
     return sol[:p], sol[p:]
 
 def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True, nu_fixed = None,
-                    tol=None):
+                    tol=None, warning=True):
     # tol stops the EM once the relative L1 change of (mu, Theta) in one step
     # falls below it. eta/nu are deliberately excluded from the criterion:
     # eta drifts by ~1 (L1) per iteration essentially forever, so any rule
@@ -215,6 +233,14 @@ def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True, nu_fixed 
         eta = np.where(nu > 0.0, gamma_init / np.where(nu > 0.0, nu, 1.0), 0.0)
 
     hist = {"mu": [], "eta": [], "nu": [], "theta_diag": []}
+    # Both are failure signals a caller cannot otherwise see, and both are
+    # invisible in the ROC sweeps, which run with verbose=False. n_glasso_fail
+    # counts iterations whose Theta is STALE -- the fit reported at this rho is
+    # then not the fit that was asked for. n_nu_clamped counts coordinates that
+    # hit the NU_MAX branch of _solve_nu_eta, which is how a degenerate theta_jj
+    # shows up; see that function's docstring for why the window is narrow.
+    n_glasso_fail = 0
+    n_nu_clamped = 0
     it = 0
     for it in range(n_iter):
         # Compute GIG parameters (nu_j == 0 takes the Gaussian path instead)
@@ -247,7 +273,9 @@ def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True, nu_fixed 
 
         if nu_fixed is None:
             S_j = (L_log + M_neg1).sum(axis=0)
-            nu_new, eta_new, gamma_new = _solve_nu_eta(S_j, gamma_new, n, p)
+            nu_new, eta_new, gamma_new, n_clamped = _solve_nu_eta(
+                S_j, gamma_new, n, p)
+            n_nu_clamped += n_clamped
         else:
             # nu is held at what the caller passed. gamma is still estimated,
             # so eta = gamma/nu moves with it; a coordinate fixed at nu_j = 0
@@ -286,8 +314,13 @@ def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True, nu_fixed 
                 S_tau + rho * np.eye(p), alpha=rho, max_iter=200, tol=1e-3,enet_tol=1e-6,
             )
         except Exception as e:
-            if verbose:
+            # `warning`, not `verbose`: the ROC sweeps run verbose=False, which
+            # used to hide this entirely. A failure here means Theta stops
+            # updating while mu/nu/eta keep moving, so what is reported at this
+            # rho is not a fit -- the caller has to be able to see that.
+            if warning:
                 print(f"  [warn] glasso failed at iter {it}: {e}; keeping previous Theta")
+            n_glasso_fail += 1
             Theta_new = Theta
 
         theta_bar_new = np.diag(Theta_new).copy()
@@ -320,9 +353,11 @@ def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True, nu_fixed 
             break
 
     return {"mu": mu, "eta": eta, "nu": nu, "Theta": Theta, "history": hist,
-            "S_tau": S_tau}
+            "S_tau": S_tau, "n_glasso_fail": n_glasso_fail,
+            "n_nu_clamped": n_nu_clamped, "n_iter_run": it + 1}
 
-def run_em_exact(Y, n_iter=60, rho=0.05, init = None, tol=None, verbose=True):
+def run_em_exact(Y, n_iter=60, rho=0.05, init = None, tol=None, verbose=True,
+                 warning=True):
     n, p = Y.shape
 
     if (init is None):
@@ -345,6 +380,11 @@ def run_em_exact(Y, n_iter=60, rho=0.05, init = None, tol=None, verbose=True):
         theta_bar = np.diag(Theta)
 
     hist = {"mu": [], "eta": [], "nu": [], "theta_diag": []}
+    # Same two failure signals as run_em_diagonal, for the same reason: a rho
+    # sweep runs with verbose=False and would otherwise see a stale Theta and a
+    # nu pinned at NU_MAX as if they were estimates.
+    n_glasso_fail = 0
+    n_nu_clamped = 0
     it = 0
     for it in range(n_iter):
         theta_diag = np.diag(Theta)
@@ -394,7 +434,9 @@ def run_em_exact(Y, n_iter=60, rho=0.05, init = None, tol=None, verbose=True):
 
         S_j = (L_log + M_neg1).sum(axis=0)
 
-        nu_new, eta_new, gamma_new = _solve_nu_eta(S_j, gamma_new, n, p)
+        nu_new, eta_new, gamma_new, n_clamped = _solve_nu_eta(
+            S_j, gamma_new, n, p)
+        n_nu_clamped += n_clamped
 
         # Compute the expected S given the first three parameters mu, nu, eta
         z_mean = (
@@ -425,8 +467,10 @@ def run_em_exact(Y, n_iter=60, rho=0.05, init = None, tol=None, verbose=True):
             _, Theta_new = graphical_lasso(S_tau + rho * np.eye(p),
                                            alpha=rho, max_iter=200, tol=1e-3, enet_tol=1e-6,)
         except Exception as e:
-            if verbose:
+            # `warning`, not `verbose` -- see run_em_diagonal.
+            if warning:
                 print(f"  [warn] glasso failed at iter {it}: {e}; keeping previous Theta")
+            n_glasso_fail += 1
             Theta_new = Theta
 
         diff = (np.abs(mu_new - mu).sum() + np.abs(eta_new - eta).sum()
@@ -453,7 +497,8 @@ def run_em_exact(Y, n_iter=60, rho=0.05, init = None, tol=None, verbose=True):
             break
 
     return {"mu": mu, "eta": eta, "nu": nu, "Theta": Theta, "history": hist,
-            "S_tau": S_tau}
+            "S_tau": S_tau, "n_glasso_fail": n_glasso_fail,
+            "n_nu_clamped": n_nu_clamped, "n_iter_run": it + 1}
 
 def run_em_MWG(
     Y,
@@ -1253,7 +1298,7 @@ def run_em_MWGP(
         L_log = np.mean(log_tau_draws, axis=0)
         S_j = (L_log + M_neg1).sum(axis=0)
 
-        nu_new, eta_new, gamma_new = _solve_nu_eta(S_j, gamma_new, n, p)
+        nu_new, eta_new, gamma_new, _ = _solve_nu_eta(S_j, gamma_new, n, p)
         # The floor applies to the sampled coordinates only: nu_j = 0 is the
         # Gaussian flag, not a small nu, and clipping it up would put the
         # sampler back on a GIG it cannot represent.

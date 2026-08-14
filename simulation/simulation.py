@@ -34,14 +34,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--p",
         type=int,
-        default=5,
+        default=100,
         help="Dimension of observations. Default: 5.",
     )
     
     parser.add_argument(
         "--n",
         type=int,
-        default=2000,
+        default=50,
         help="Number of observations. Default: 2000.",
     )
 

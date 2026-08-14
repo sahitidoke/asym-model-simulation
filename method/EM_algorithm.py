@@ -17,7 +17,7 @@ def gig_log_moment_fd(lam, chi, psi, h=1e-4):
     log_den = np.log(kve(lam - h, x))
     return 0.5 * np.log(chi / psi) + (log_num - log_den) / (2 * h)
 
-NU_MIN, NU_MAX = 1e-4, 100.0   # bracket for the nu stationarity root
+NU_MIN, NU_MAX = 1e-4, 2   # bracket for the nu stationarity root
 
 
 def _solve_nu_eta(S_j, gamma, n, p):

@@ -14,6 +14,111 @@ def simulate_aat_data(n, p, Theta_true, mu, eta, nu, rng):
     Y = mu[None, :] + eta[None, :] * nu[None, :] * tau + np.sqrt(tau) * X
     return Y, tau
 
+# --------------------------------------------------------------------------
+# Finegold & Drton (2011), "Robust graphical modeling of gene networks using
+# classical and alternative t-distributions", AOAS 5(2)  --  docs/tlasso.pdf.
+#
+# Both of their models, plus the per-coordinate-nu modification of the second.
+# Both take nu in THIS PROJECT'S convention -- the one simulate_aat_data and
+# EM_algorithm use, not F&D's:
+#
+#     tau ~ Inv-Gamma(2/nu, 2/nu),    df = 4/nu,    Var(Y_j) = Psi_jj 2/(2 - nu)
+#
+# so nu -> 0 is the Gaussian limit and LARGE nu is the heavy tail. An aat design
+# therefore hands its nu_true straight to these and gets the same tails back,
+# with only the eta term gone.
+#
+# F&D write their own tau ~ Inv-Gamma(nu/2, nu/2), with nu the df itself, and so
+# do run_tlasso and run_tstar_varlasso. That runs the OTHER WAY. Convert on the
+# way out to those fits -- median(4/nu) summarizes per coordinate and only then
+# reduces -- and never hand one of them a nu from here unconverted. The two
+# conventions agree at exactly one point, nu = 2, which is also where Var(Y)
+# stops existing; anything above it in aat units has no variance at all.
+#
+# None of these carry an eta, so every marginal is symmetric about mu_j. And as
+# everywhere else in this project, theta_jk = 0 is NOT conditional independence
+# of Y_j and Y_k given the rest -- the latent tau's sit between Theta and Y, in
+# the classical case coupling all p coordinates through one draw. The support
+# of Theta_true is the estimation target, and nothing more than that.
+# --------------------------------------------------------------------------
+
+def simulate_classical_t_data(n, p, Theta_true, mu, nu, rng):
+    """Classical multivariate t, F&D Sec. 2: ONE divisor per OBSERVATION.
+
+        Y_i = mu + sqrt(tau_i) * X_i,
+        tau_i ~ Inv-Gamma(2/nu, 2/nu)  independent across i,
+        X_i ~ N_p(0, Psi),  Psi = Theta^-1.
+
+    Y_i is then exactly multivariate t with 4/nu degrees of freedom. One tau_i
+    scales a whole row, so an outlying observation is outlying in every
+    coordinate at once -- this is the data run_tlasso is the ML fit for, and the
+    contrast run_tstar_varlasso is meant to lose on.
+
+    `nu` is a scalar in aat units (see the module section comment): df = 4/nu,
+    and Var(Y) = Psi * 2/(2 - nu) exists only for nu < 2. run_tlasso wants the
+    df, so it gets 4/nu, never this.
+
+    Returns (Y, tau) with tau of shape (n,) -- one per observation, NOT the
+    (n, p) the t* generators return.
+    """
+    Psi_true = np.linalg.inv(Theta_true)
+    nu = float(nu)
+    if nu <= 0:
+        raise ValueError("nu must be positive; nu -> 0 is the Gaussian limit")
+    # The same draw simulate_aat_data makes, one per row instead of per cell.
+    # numpy's gamma takes the SCALE, so the rate beta goes in as 1/beta.
+    alpha = 2.0 / nu
+    beta = 2.0 / nu
+    tau = 1.0 / rng.gamma(shape=alpha, scale=1.0 / beta, size=n)
+    X = rng.multivariate_normal(mean=np.zeros(p), cov=Psi_true, size=n)
+    Y = mu[None, :] + np.sqrt(tau)[:, None] * X
+    return Y, tau
+
+def simulate_alternative_t_data(n, p, Theta_true, mu, nu, rng):
+    """Modified alternative t: Finegold & Drton's t* with a per-coordinate nu_j.
+
+        Y_j = mu_j + sqrt(tau_j) * X_j,
+        tau_j ~ Inv-Gamma(2/nu_j, 2/nu_j)  independent across j,
+        X ~ N_p(0, Psi),  Psi = Theta^-1.
+
+    F&D's alternative t (Sec. 5) draws one tau_ij per coordinate but ties every
+    coordinate to a single df; the modification here is that each tau_j carries
+    its own nu_j, so the tails vary across coordinates while the marginals stay
+    symmetric. That is the point of having it: it separates "the df is not one
+    number" from "the marginals are skewed" as reasons a scalar-nu method loses
+    to ours, which simulate_aat_data confounds.
+
+    `nu` is a length-p vector in aat units (see the module section comment), so
+    it is the SAME vector an aat design already has: pass nu_true straight
+    through and the tails match simulate_aat_data coordinate for coordinate,
+    with only the eta term gone. A scalar broadcasts, which is F&D's t* exactly.
+
+    Marginally Y_j = mu_j + sqrt(Psi_jj) * t_{4/nu_j}, so Var(Y_j) =
+    Psi_jj * 2/(2 - nu_j) exists only for nu_j < 2. A design mixing nu_j across
+    that threshold has some coordinates with no variance at all, which is
+    legitimate but worth doing on purpose rather than by accident.
+
+    Whatever the t-methods get as their one scalar df is wrong for every
+    coordinate unless the nu_j happen to agree; median(4/nu) is the summary that
+    converts per coordinate and only then reduces.
+
+    Returns (Y, tau), both (n, p), matching simulate_aat_data.
+    """
+    Psi_true = np.linalg.inv(Theta_true)
+    nu = np.broadcast_to(np.asarray(nu, dtype=float), (p,))
+    if np.any(nu <= 0):
+        raise ValueError("nu must be positive; nu -> 0 is the Gaussian limit")
+    # The same draw simulate_aat_data makes. numpy's gamma takes the SCALE, so
+    # the rate beta goes in as 1/beta.
+    alpha = 2.0 / nu
+    beta = 2.0 / nu
+    G = rng.gamma(shape=alpha, scale=1.0 / beta, size=(n, p))
+    tau = 1.0 / G
+    X = rng.multivariate_normal(mean=np.zeros(p), cov=Psi_true, size=n)
+    Y = mu[None, :] + np.sqrt(tau) * X
+    return Y, tau
+
+
 def simulate_gaussian_data(n,p, Theta_true):
     Psi_true = np.linalg.inv(Theta_true)
     Y = np.random.multivariate_normal(mean=np.zeros(p), cov=Psi_true, size=n)
@@ -147,9 +252,17 @@ if __name__ == "__main__":
     nu_true = rng.uniform(low=0.15, high=0.9, size=p)
     Theta_true = make_true_theta(p)
 
-    # Swap these two lines for whichever generator you want to look at.
+    # Swap these two lines for whichever generator you want to look at. The t
+    # generators share the aat convention, so nu_true goes to them unchanged and
+    # the tails are the same as the aat draw below -- only the eta term differs.
+    # Their panels should come back with skew ~ 0, which is the whole point.
     # name = "contaminated_normal"
     # Y = simulate_contaminated_normal_data(n, p, true_theta)
+    # name = "classical_t"
+    # Y, _ = simulate_classical_t_data(n, p, Theta_true, mu_true,
+    #                                  float(np.median(nu_true)), rng)
+    # name = "alternative_t"
+    # Y, _ = simulate_alternative_t_data(n, p, Theta_true, mu_true, nu_true, rng)
     name = "aat"
     Y,_ = simulate_aat_data(n, p, Theta_true, mu_true, eta_true, nu_true, rng)
 

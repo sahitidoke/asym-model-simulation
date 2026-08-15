@@ -72,7 +72,7 @@ def _solve_nu_eta(S_j, gamma, n, p):
     for j in range(p):
         f = lambda x: stationarity(x, S_j[j])
 
-        if f(NU_MIN) >= 0.0:                       # Gaussian limit: tau_j == 1
+        if f(NU_MIN) >= 0.0 or not np.isfinite(f(NU_MIN)):  # Gaussian limit: tau_j == 1
             nu_new[j] = eta_new[j] = gamma_new[j] = 0.0
         elif f(NU_MAX) <= 0.0:                     # heavier than the bracket
             nu_new[j] = NU_MAX
@@ -88,44 +88,75 @@ def _solve_nu_eta(S_j, gamma, n, p):
 def _tau_moments(nu, eta, theta_diag, resid):
     """E-step moments of tau: (M_neg1, M_pos1, M_neg_half, M_pos_half, L_log).
 
-    Three branches. They are one law -- tau_j | Y ~ GIG(lam, chi, psi) with
+    Four branches. They are one law -- tau_j | Y ~ GIG(lam, chi, psi) with
     lam = -2/nu_j - 0.5, chi_ij = 4/nu_j + theta_jj (Y_ij - mu_j)^2,
-    psi_j = theta_jj gamma_j^2 -- at three regimes, each a limit of the one
-    above it:
+    psi_j = theta_jj gamma_j^2 -- at four regimes, each a limit of it:
 
       nu_j == 0   GAUSSIAN. tau_j is the point mass at 1, so E[tau_j^r] = 1 and
                   E[log tau_j] = 0. A model state, not a numerical dodge:
                   _solve_nu_eta sets it, and it pins gamma_j = 0 with it. The
                   limits are substituted rather than approached, since
                   lam = -inf at nu_j = 0.
-      overflow    INVERSE-GAMMA. The psi -> 0 limit of the GIG is
+      x -> 0      INVERSE-GAMMA. The psi -> 0 limit of the GIG is
                   InvGamma(|lam|, chi/2), whose moments are closed form and
-                  evaluate in log space. Taken ONLY per (i, j) entry where the
-                  Bessel ratio is not representable, so the exact GIG is kept
-                  everywhere it works.
+                  evaluate in log space.
+      x -> inf    POINT MASS. The opposite limit: the Bessel ratio
+                  K_{lam+r}(x)/K_lam(x) -> 1, so tau collapses onto
+                  sqrt(chi/psi) and
+
+                      E[tau^r]   = (chi/psi)^(r/2) (1 + r(2 lam + r)/(2x)),
+                      E[log tau] = 1/2 log(chi/psi) + lam/x,
+
+                  keeping the O(1/x) term of the ratio implied by
+                  K_v(x) ~ sqrt(pi/2x) e^-x (1 + (4v^2 - 1)/(8x)).
       otherwise   GIG, unchanged.
 
-    What "overflow" means here: gig_moment returns kve(lam + r, x)/kve(lam, x)
-    with x = sqrt(chi psi). That RATIO is perfectly well behaved -- it is ~1 in
-    the cases that break -- but its two halves need not be:
-    K_v(x) ~ Gamma(v)/2 (2/x)^v for a large order and a small argument, so both
-    sides run past the largest double and the ratio evaluates to inf/inf = NaN.
-    (kve's exp(x) scaling is no help; it defends against large-x underflow, and
-    here x is tiny.) It takes BOTH a near-Gaussian coordinate (nu_j small, so
-    |lam| = 2/nu_j + 0.5 is large) and a near-symmetric one (gamma_j small, so
-    x is small) -- either alone is fine, which is why it strikes only
-    intermittently, on whichever coordinates happen to sit in that corner.
+    Both limits are taken ONLY per (i, j) entry where the GIG did not evaluate,
+    so the exact law is kept everywhere it works.
 
-    The branch is chosen from the COMPUTED values, not from a predicted
-    magnitude: scipy's kve gives out well below DBL_MAX (around K ~ 1e300 here)
-    and where it gives out depends on the order, so a threshold on the
-    asymptotic log K either fires early -- discarding an exact GIG value the
-    InvGamma limit only matches to ~1e-4 -- or fires late, which is a NaN. The
-    finiteness test has neither failure mode, and it keeps the exact GIG on
-    every entry that has one.
+    TWO different things break gig_moment, at OPPOSITE ends of x, and a failed
+    entry has to be sent to the limit that matches its end:
 
-    Wherever it does fire, |lam| is large and x is small, which is exactly
-    where the InvGamma limit is sharp. Overflow needs |lam| > 40 or so, well
+      x -> 0    K_v(x) ~ Gamma(v)/2 (2/x)^v for a large order and a small
+                argument, so both halves of the ratio run past the largest
+                double -- the RATIO is perfectly well behaved, ~1 in the cases
+                that break -- and it evaluates to inf/inf = NaN. (kve's exp(x)
+                scaling is no help; it defends against large-x underflow, and
+                here x is tiny.) It takes BOTH a near-Gaussian coordinate
+                (nu_j small, so |lam| = 2/nu_j + 0.5 is large) and a
+                near-symmetric one (gamma_j small, so x is small) -- either
+                alone is fine, which is why it strikes only intermittently, on
+                whichever coordinates happen to sit in that corner.
+      x -> inf  scipy's kve returns NaN outright past x ~ 3e9, at any order.
+                A large residual sends x -> theta_jj |gamma_j| |Y_ij - mu_j|,
+                so it takes a residual of ~1e9 / (theta_jj |gamma_j|) -- data
+                pathology rather than a corner of the parameter space. Note the
+                yardstick is the FITTED theta_jj, not the sample sd: one wild
+                cell inflates the sample sd enough to hide itself, so a
+                residual that looks like 7 sd's can still be here. It is
+                branched anyway because the failure is otherwise SILENT and
+                large: answering
+                with the InvGamma limit here gives E[tau] = chi/(2(|lam| - 1)),
+                about 0.12 resid^2 where the truth is about |resid|. Wrong by a
+                factor of the residual, in the direction that inflates S_tau,
+                and with nothing raised.
+
+    The split is x > 4 lam^2, which is both the validity boundary of the
+    large-argument Bessel expansion and a clean separator of the two failure
+    modes -- they are nine decades apart. Overflow needs x <~ |lam| < 4 lam^2,
+    while the kve NaN sits at x ~ 3e9, above 4 lam^2 for every lam this model
+    can reach (|lam| <= 2/NU_MIN + 0.5 = 2.0e4, so 4 lam^2 <= 1.6e9).
+
+    WHETHER to leave the GIG is decided from the COMPUTED values, not from a
+    predicted magnitude: scipy's kve gives out well below DBL_MAX (around
+    K ~ 1e300 here) and where it gives out depends on the order, so a threshold
+    on the asymptotic log K either fires early -- discarding an exact GIG value
+    the InvGamma limit only matches to ~1e-4 -- or fires late, which is a NaN.
+    The finiteness test has neither failure mode, and it keeps the exact GIG on
+    every entry that has one. x only decides WHICH limit a failed entry gets.
+
+    Wherever the InvGamma branch fires, |lam| is large and x is small, which is
+    exactly where that limit is sharp. Overflow needs |lam| > 40 or so, well
     above r, so gammaln(|lam| - r) is never asked for a non-positive argument.
     """
     n, p = resid.shape
@@ -158,14 +189,36 @@ def _tau_moments(nu, eta, theta_diag, resid):
         ig |= ~np.isfinite(blocks[r])
 
     if ig.any():
-        # psi -> 0 limit: tau ~ InvGamma(a, b) with a = |lam|, b = chi/2, so
-        # E[tau^r] = b^r Gamma(a - r)/Gamma(a) and E[log tau] = log b - psi(a),
-        # both evaluated in log space.
-        a_f = np.broadcast_to(-lam, chi.shape)[ig]
-        log_b = np.log(chi[ig] / 2.0)
-        for r in blocks:
-            blocks[r][ig] = np.exp(r * log_b + gammaln(a_f - r) - gammaln(a_f))
-        L_blk[ig] = log_b - digamma(a_f)
+        lam_f = np.broadcast_to(lam[None, :], chi.shape)
+        psi_f = np.broadcast_to(psi[None, :], chi.shape)
+        # Which end a failed entry fell off, and so which limit it gets. See
+        # the docstring: the two failure modes sit nine decades apart in x, and
+        # 4 lam^2 is between them at every lam this model can reach.
+        x = np.sqrt(chi * psi_f)
+        pm = ig & (x > 4.0 * lam_f ** 2)
+        igam = ig & ~pm
+
+        if igam.any():
+            # psi -> 0 limit: tau ~ InvGamma(a, b) with a = |lam|, b = chi/2, so
+            # E[tau^r] = b^r Gamma(a - r)/Gamma(a) and E[log tau] = log b - psi(a),
+            # both evaluated in log space.
+            a_f = -lam_f[igam]
+            log_b = np.log(chi[igam] / 2.0)
+            for r in blocks:
+                blocks[r][igam] = np.exp(r * log_b + gammaln(a_f - r) - gammaln(a_f))
+            L_blk[igam] = log_b - digamma(a_f)
+
+        if pm.any():
+            # x -> inf limit: tau is a point mass at sqrt(chi/psi), with the
+            # O(1/x) term of the Bessel ratio kept. The correction stays
+            # positive on this branch -- |lam| r / x < r / (4 |lam|) and
+            # |lam| >= 2/NU_MAX + 0.5 there -- so no moment comes back negative.
+            x_p, lam_p = x[pm], lam_f[pm]
+            half_log = 0.5 * np.log(chi[pm] / psi_f[pm])
+            for r in blocks:
+                blocks[r][pm] = np.exp(r * half_log) * (
+                    1.0 + r * (2.0 * lam_p + r) / (2.0 * x_p))
+            L_blk[pm] = half_log + lam_p / x_p
 
     for r in blocks:
         M[r][:, cols] = blocks[r]

@@ -17,7 +17,7 @@ def gig_log_moment_fd(lam, chi, psi, h=1e-4):
     log_den = np.log(kve(lam - h, x))
     return 0.5 * np.log(chi / psi) + (log_num - log_den) / (2 * h)
 
-NU_MIN, NU_MAX = 1e-4, 2   # bracket for the nu stationarity root
+NU_MIN, NU_MAX = 1e-4, 10   # bracket for the nu stationarity root
 
 
 def _solve_nu_eta(S_j, gamma, n, p):
@@ -343,8 +343,8 @@ def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True, nu_fixed 
             # nu/eta as they stand after this iteration's M-step. A nu_j of 0 is
             # the Gaussian path, and its eta_j is 0 with it by construction.
             print(f"iter {it:3d} | param-change {diff:.10f}")
-            print(f"          nu  = {np.round(nu, 3)}")
-            print(f"          eta = {np.round(eta, 3)}")
+            # print(f"          nu  = {np.round(nu, 3)}")
+            # print(f"          eta = {np.round(eta, 3)}")
 
         if tol is not None and rel_change < tol:
             if verbose:
@@ -1259,6 +1259,10 @@ def run_em_MWGP(
     state = np.zeros((n, p))
 
     hist = {"mu": [], "eta": [], "nu": [], "theta_diag": [], "loglik": []}
+    # Same two failure signals the other EM variants report, so a rho sweep can
+    # flag this method's fits on the same footing.
+    n_glasso_fail = 0
+    n_nu_clamped = 0
     it = 0
     ll_prev = None
     stall = 0
@@ -1298,11 +1302,13 @@ def run_em_MWGP(
         L_log = np.mean(log_tau_draws, axis=0)
         S_j = (L_log + M_neg1).sum(axis=0)
 
-        nu_new, eta_new, gamma_new, _ = _solve_nu_eta(S_j, gamma_new, n, p)
+        nu_new, eta_new, gamma_new, n_clamped = _solve_nu_eta(
+            S_j, gamma_new, n, p)
+        n_nu_clamped += n_clamped
         # The floor applies to the sampled coordinates only: nu_j = 0 is the
         # Gaussian flag, not a small nu, and clipping it up would put the
         # sampler back on a GIG it cannot represent.
-        nu_new = np.where(nu_new > 0.0, np.clip(nu_new, 1e-3, NU_MAX), 0.0)
+        nu_new = np.where(nu_new > 0.0, np.clip(nu_new, NU_MIN, NU_MAX), 0.0)
         eta_new = np.clip(eta_new, -20, 20)
 
         # ==================== Compute expected S_tau =================
@@ -1331,6 +1337,7 @@ def run_em_MWGP(
                     f"  [warn] glasso failed at iter {it}: {e}; "
                     f"keeping previous Theta"
                 )
+            n_glasso_fail += 1
             Theta_new = Theta
 
         # =========== Convergence monitor: expected complete-data =====
@@ -1400,6 +1407,8 @@ def run_em_MWGP(
 
     return {
         "mu": mu, "eta": eta, "nu": nu, "Theta": Theta, "history": hist, "S_tau": S_tau,
+        "n_glasso_fail": n_glasso_fail, "n_nu_clamped": n_nu_clamped,
+        "n_iter_run": it + 1,
     }
 
 def run_em_importance(

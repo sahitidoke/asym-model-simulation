@@ -1,0 +1,259 @@
+==============================================================================
+ROC run: alt_t_with_var_nu
+==============================================================================
+  started : 2026-08-16 03:56:55
+  outputs : results\simulations\roc\alt_t_with_var_nu/   (per-replicate figures, JSON, this log)
+  commit  : a7a4989 (dirty working tree)
+
+[design]
+  replicates       : 50
+  p, n             : 100, 50
+  rho grid         : 20 points, min_ratio 0.01, rebuilt per method and replicate off that method's own converged S_tau
+  theoretical rho  : sqrt(log p / n) = 0.30349  (pilot only; not a point on the curve)
+  FP_end, max_extra: 0.3, 50
+
+[true parameters]  simulate_aat_data
+  mu_true : all 0   (length 100)
+  eta_true: min -2.6   median 0.14   max 2.6   (length 100)
+            [-2.6000,  0.7500,  0.4200, -0.1400, -2.6000,  0.7500, -0.4200,
+             -0.1400,  2.6000,  0.7500,  0.4200, -0.1400,  2.6000, -0.7500,
+              0.4200,  0.1400,  2.6000, -0.7500, -0.4200,  0.1400,  2.6000,
+             -0.7500, -0.4200,  0.1400, -2.6000, -0.7500, -0.4200,  0.1400,
+             -2.6000,  0.7500,  0.4200,  0.1400,  2.6000, -0.7500,  0.4200,
+             -0.1400,  2.6000, -0.7500,  0.4200, -0.1400, -2.6000,  0.7500,
+             -0.4200,  0.1400,  2.6000, -0.7500, -0.4200,  0.1400,  2.6000,
+             -0.7500,  0.4200,  0.1400, -2.6000, -0.7500,  0.4200, -0.1400,
+             -2.6000,  0.7500,  0.4200,  0.1400, -2.6000,  0.7500,  0.4200,
+              0.1400,  2.6000, -0.7500, -0.4200,  0.1400, -2.6000, -0.7500,
+             -0.4200,  0.1400,  2.6000,  0.7500, -0.4200,  0.1400,  2.6000,
+             -0.7500, -0.4200,  0.1400,  2.6000,  0.7500,  0.4200,  0.1400,
+             -2.6000, -0.7500,  0.4200,  0.1400, -2.6000, -0.7500,  0.4200,
+             -0.1400,  2.6000,  0.7500, -0.4200,  0.1400, -2.6000,  0.7500,
+              0.4200, -0.1400]
+  nu_true : min 0.15   median 0.775   max 1.85   (length 100)
+            [0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500]
+  Theta   : REDRAWN EVERY REPLICATE -- make_true_theta(p=100), prob=0.01, min_eig=0.6
+            (~1% of the 4950 pairs are edges; the exact count is logged per replicate)
+            NOTE: this is the SUPPORT of Theta, which is the target of the ROC curves;
+            it is not the conditional independence graph of Y in this model.
+  rng     : entropy 20260814
+            (np.random.default_rng(20260814) replays the same draws)
+
+[methods]  nu treatment for this run
+  Classical t         (run_tlasso)
+      nu   : ESTIMATED by the ECM step, bracket [0.1, 100.0]; restarted from 3.0 at every rho, since the warm start carries only mu and Theta
+      args : n_iter=200, verbose=False, tol=1e-05
+  Alternative t*      (run_tstar_varlasso)
+      nu   : ESTIMATED by the ECM step, bracket [0.1, 100.0]; restarted from 3.0 at every rho, since the warm start carries only mu and Theta
+      args : n_iter=200, verbose=False, tol=1e-05
+  Asymmetric alt-t    (run_em_diagonal)
+      nu   : ESTIMATED per coordinate (nu_j), bracket [0.0001, 100], nu_j = 0 meaning that coordinate went Gaussian
+      args : n_iter=200, verbose=False, tol=1e-05
+  Naive Gaussian      (graphical_lasso)
+      nu   : not a parameter of this model
+      args : max_iter=2000, verbose=False
+  Asymmetric alt-t    (run_em_exact)
+      nu   : ESTIMATED per coordinate (nu_j), bracket [0.0001, 100], nu_j = 0 meaning that coordinate went Gaussian
+      args : n_iter=200, verbose=False, tol=1e-05
+  Reading the per-rho nu lines below: tlasso and t*var-lasso print a scalar `nu`,
+  run_em_diagonal a `median nu`/`median eta` over coordinates. The two nu's are NOT
+  comparable -- tau ~ Gamma(nu/2, nu/2) for the t models, so small nu is the heavy
+  tail, while EM_algorithm's tau_j ~ Inv-Gamma(2/nu_j, 2/nu_j) puts the heavy tail at
+  large nu_j.
+==============================================================================
+
+Replicate 1/50
+  Theta: 84/4950 edges
+  pilot fit of run_tlasso at rho=0.30349
+  [warn] glasso failed at iter 10: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+  [warn] glasso failed at iter 11: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+  [warn] glasso failed at iter 12: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+  -> rho_max = max|S_ij| (off-diag) = 632.79416
+  [note] pilot fit hit a glasso ConvergenceWarning (suppressed)
+  rho grid: [632.7941639  496.5915293  389.70515381 305.82500495 239.99922182
+ 188.3417822  147.80309141 115.98994964  91.02426944  71.43220298
+  56.0571335   43.99139442  34.52268538  27.09202156  21.26073403
+  16.68457301  13.09338502  10.27516444   8.06353774   6.32794164]
+Running run_tlasso over 20 rho values, extending until FPR >= 0.3...
+  rho=632.79416 (1/20)
+    fp=0.0016 tp=0.0000  [0.2s]
+   nu  = 0.1000
+  rho=496.59153 (2/20)
+    fp=0.0037 tp=0.0119  [0.2s]
+   nu  = 0.1000
+  rho=389.70515 (3/20)
+    fp=0.0074 tp=0.0238  [0.3s]
+   nu  = 0.1000
+  rho=305.82500 (4/20)
+    fp=0.0119 tp=0.0476  [0.3s]
+   nu  = 0.1000
+  rho=239.99922 (5/20)
+    fp=0.0220 tp=0.0952  [0.4s]
+   nu  = 0.1000
+  rho=188.34178 (6/20)
+    fp=0.0321 tp=0.1667  [0.4s]
+   nu  = 0.1000
+  rho=147.80309 (7/20)
+    fp=0.0522 tp=0.2262  [0.6s]
+   nu  = 0.1000
+  rho=115.98995 (8/20)
+    fp=0.0812 tp=0.2976  [0.7s]
+   nu  = 0.1000
+  rho=91.02427 (9/20)
+    fp=0.1282 tp=0.5238  [0.7s]
+   nu  = 0.1000
+  rho=71.43220 (10/20)
+    fp=0.1913 tp=0.6548  [1.0s]
+   nu  = 0.1000
+  rho=56.05713 (11/20)
+    fp=0.2630 tp=0.7381  [1.3s]
+   nu  = 0.1000
+  rho=43.99139 (12/20)
+    fp=0.3413 tp=0.8929  [1.3s]
+   nu  = 0.1000
+  FPR 0.3413 >= fp_end=0.3; stopping after 12 fits
+  grid stopped 8 points early at rho=43.99139, ending at FPR 0.3413
+  pilot fit of run_tstar_varlasso at rho=0.30349
+  -> rho_max = max|S_ij| (off-diag) = 0.95524
+  rho grid: [0.9552387  0.74963309 0.58828204 0.4616602  0.36229244 0.28431261
+ 0.22311715 0.17509341 0.1374063  0.10783096 0.08462142 0.06640751
+ 0.05211395 0.04089694 0.03209428 0.02518631 0.01976521 0.01551094
+ 0.01217237 0.00955239]
+Running run_tstar_varlasso over 20 rho values, extending until FPR >= 0.3...
+  rho=0.95524 (1/20)
+    fp=0.0021 tp=0.0119  [4.1s]
+   nu  = 24.0739
+  rho=0.74963 (2/20)
+    fp=0.0043 tp=0.0357  [3.7s]
+   nu  = 18.8633
+  rho=0.58828 (3/20)
+    fp=0.0066 tp=0.0833  [3.5s]
+   nu  = 15.0137
+  rho=0.46166 (4/20)
+    fp=0.0150 tp=0.1190  [3.0s]
+   nu  = 12.1749
+  rho=0.36229 (5/20)
+    fp=0.0261 tp=0.2262  [2.5s]
+   nu  = 10.0111
+  rho=0.28431 (6/20)
+    fp=0.0448 tp=0.3214  [2.1s]
+   nu  = 8.3014
+  rho=0.22312 (7/20)
+    fp=0.0732 tp=0.4643  [2.3s]
+   nu  = 6.9214
+  rho=0.17509 (8/20)
+    fp=0.1069 tp=0.6071  [2.0s]
+   nu  = 5.7888
+  rho=0.13741 (9/20)
+    fp=0.1480 tp=0.6786  [1.2s]
+   nu  = 4.8599
+  rho=0.10783 (10/20)
+    fp=0.1804 tp=0.7024  [1.4s]
+   nu  = 4.1044
+  rho=0.08462 (11/20)
+    fp=0.2148 tp=0.7857  [1.1s]
+   nu  = 3.4922
+  rho=0.06641 (12/20)
+    fp=0.2483 tp=0.8690  [0.9s]
+   nu  = 2.9965
+  rho=0.05211 (13/20)
+    fp=0.2781 tp=0.9048  [1.0s]
+   nu  = 2.5909
+  rho=0.04090 (14/20)
+    fp=0.3064 tp=0.9048  [1.0s]
+   nu  = 2.2573
+  FPR 0.3064 >= fp_end=0.3; stopping after 14 fits
+  grid stopped 6 points early at rho=0.04090, ending at FPR 0.3064
+  pilot fit of run_em_diagonal at rho=0.30349
+  -> rho_max = max|S_ij| (off-diag) = 0.58451
+  rho grid: [0.58450887 0.45869916 0.35996874 0.28248906 0.22168611 0.17397038
+ 0.13652499 0.10713935 0.08407867 0.06598158 0.0517797  0.04063464
+ 0.03188844 0.02502477 0.01963844 0.01541146 0.0120943  0.00949112
+ 0.00744825 0.00584509]
+Running run_em_diagonal over 20 rho values, extending until FPR >= 0.3...
+  rho=0.58451 (1/20)
+    fp=0.0002 tp=0.0476  [13.5s]
+   median nu  = 0.057
+   median |eta| = 2.431
+  rho=0.45870 (2/20)
+    fp=0.0043 tp=0.1310  [13.2s]
+   median nu  = 0.074
+   median |eta| = 2.238
+  rho=0.35997 (3/20)
+    fp=0.0115 tp=0.1429  [13.4s]
+   median nu  = 0.099
+   median |eta| = 1.832
+  rho=0.28249 (4/20)
+    fp=0.0294 tp=0.2976  [12.9s]
+   median nu  = 0.138
+   median |eta| = 1.648
+  rho=0.22169 (5/20)
+    fp=0.0612 tp=0.5238  [12.8s]
+   median nu  = 0.22
+   median |eta| = 1.293
+  rho=0.17397 (6/20)
+    fp=0.1019 tp=0.5952  [12.6s]
+   median nu  = 0.296
+   median |eta| = 1.034
+  rho=0.13652 (7/20)
+    fp=0.1441 tp=0.6905  [13.5s]
+   median nu  = 0.402
+   median |eta| = 0.598
+  rho=0.10714 (8/20)
+    fp=0.1802 tp=0.7857  [14.2s]
+   median nu  = 0.489
+   median |eta| = 0.327
+  rho=0.08408 (9/20)
+    fp=0.2137 tp=0.8452  [13.1s]
+   median nu  = 0.664
+   median |eta| = 0.19
+  rho=0.06598 (10/20)
+    fp=0.2433 tp=0.8929  [12.5s]
+   median nu  = 0.984
+   median |eta| = 0.106
+  rho=0.05178 (11/20)
+    fp=0.2680 tp=0.9167  [12.3s]
+   median nu  = 1.177
+   median |eta| = 0.066
+  rho=0.04063 (12/20)
+    fp=0.2931 tp=0.9167  [11.4s]
+   median nu  = 1.373
+   median |eta| = 0.035
+  rho=0.03189 (13/20)
+    fp=0.3128 tp=0.9167  [12.8s]
+   median nu  = 1.601
+   median |eta| = 0.022
+  FPR 0.3128 >= fp_end=0.3; stopping after 13 fits
+  grid stopped 7 points early at rho=0.03189, ending at FPR 0.3128
+  pilot fit of run_em_exact at rho=0.30349
+  -> rho_max = max|S_ij| (off-diag) = 0.60603
+  rho grid: [0.60602795 0.47558648 0.37322123 0.29288908 0.22984763 0.18037522
+ 0.14155125 0.11108375 0.08717408 0.06841073 0.053686   0.04213063
+ 0.03306243 0.02594607 0.02036144 0.01597884 0.01253956 0.00984054
+ 0.00772246 0.00606028]
+Running run_em_exact over 20 rho values, extending until FPR >= 0.3...
+  rho=0.60603 (1/20)
+    fp=0.0000 tp=0.0476  [29.3s]
+   median nu  = 0.055
+   median |eta| = 2.434
+  rho=0.47559 (2/20)
+    fp=0.0037 tp=0.1071  [27.2s]
+   median nu  = 0.071
+   median |eta| = 2.195
+  rho=0.37322 (3/20)
+    fp=0.0101 tp=0.1310  [33.2s]
+   median nu  = 0.096
+   median |eta| = 1.776
+  rho=0.29289 (4/20)

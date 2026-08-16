@@ -1,0 +1,1019 @@
+==============================================================================
+ROC run: new_optimizer
+==============================================================================
+  started : 2026-08-14 17:50:51
+  outputs : results/simulations/roc/new_optimizer/   (per-replicate figures, JSON, this log)
+  commit  : f5140c1 (dirty working tree)
+
+[design]
+  replicates       : 50
+  p, n             : 100, 50
+  rho grid         : 20 points, min_ratio 0.01, rebuilt per method and replicate off that method's own converged S_tau
+  theoretical rho  : sqrt(log p / n) = 0.30349  (pilot only; not a point on the curve)
+  FP_end, max_extra: 0.5, 50
+
+[true parameters]  simulate_aat_data
+  mu_true : all 0   (length 100)
+  eta_true: min -2   median 0.9   max 2   (length 100)
+            [-2.0000,  0.9000,  2.0000, -0.9000, -2.0000,  0.9000, -2.0000,
+             -0.9000,  2.0000,  0.9000,  2.0000, -0.9000,  2.0000, -0.9000,
+              2.0000,  0.9000,  2.0000, -0.9000, -2.0000,  0.9000,  2.0000,
+             -0.9000, -2.0000,  0.9000, -2.0000, -0.9000, -2.0000,  0.9000,
+             -2.0000,  0.9000,  2.0000,  0.9000,  2.0000, -0.9000,  2.0000,
+             -0.9000,  2.0000, -0.9000,  2.0000, -0.9000, -2.0000,  0.9000,
+             -2.0000,  0.9000,  2.0000, -0.9000, -2.0000,  0.9000,  2.0000,
+             -0.9000,  2.0000,  0.9000, -2.0000, -0.9000,  2.0000, -0.9000,
+             -2.0000,  0.9000,  2.0000,  0.9000, -2.0000,  0.9000,  2.0000,
+              0.9000,  2.0000, -0.9000, -2.0000,  0.9000, -2.0000, -0.9000,
+             -2.0000,  0.9000,  2.0000,  0.9000, -2.0000,  0.9000,  2.0000,
+             -0.9000, -2.0000,  0.9000,  2.0000,  0.9000,  2.0000,  0.9000,
+             -2.0000, -0.9000,  2.0000,  0.9000, -2.0000, -0.9000,  2.0000,
+             -0.9000,  2.0000,  0.9000, -2.0000,  0.9000, -2.0000,  0.9000,
+              2.0000, -0.9000]
+  nu_true : min 0.45   median 0.5   max 0.55   (length 100)
+            [0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500,
+             0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500,
+             0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500,
+             0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500,
+             0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500,
+             0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500,
+             0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500,
+             0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500,
+             0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500,
+             0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500,
+             0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500,
+             0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500, 0.4500, 0.5500,
+             0.4500, 0.5500, 0.4500, 0.5500]
+  Theta   : REDRAWN EVERY REPLICATE -- make_true_theta(p=100), prob=0.01, min_eig=0.6
+            (~1% of the 4950 pairs are edges; the exact count is logged per replicate)
+            NOTE: this is the SUPPORT of Theta, which is the target of the ROC curves;
+            it is not the conditional independence graph of Y in this model.
+  rng     : entropy 20260814
+            (np.random.default_rng(20260814) replays the same draws)
+
+[methods]  nu treatment for this run
+  Classical t         (run_tlasso)
+      nu   : ESTIMATED by the ECM step, bracket [0.1, 100.0]; restarted from 3.0 at every rho, since the warm start carries only mu and Theta
+      args : n_iter=200, verbose=False, tol=1e-05
+  Alternative t*      (run_tstar_varlasso)
+      nu   : ESTIMATED by the ECM step, bracket [0.1, 100.0]; restarted from 3.0 at every rho, since the warm start carries only mu and Theta
+      args : n_iter=200, verbose=False, tol=1e-05
+  Asymmetric alt-t    (run_em_diagonal)
+      nu   : ESTIMATED per coordinate (nu_j), bracket [0.0001, 2], nu_j = 0 meaning that coordinate went Gaussian
+      args : n_iter=200, verbose=False, tol=1e-05
+  Asymmetric alt-t    (run_em_exact)
+      nu   : ESTIMATED per coordinate (nu_j), bracket [0.0001, 2], nu_j = 0 meaning that coordinate went Gaussian
+      args : n_iter=200, verbose=False, tol=1e-05
+  Naive Gaussian      (graphical_lasso)
+      nu   : not a parameter of this model
+      args : max_iter=2000, verbose=False
+  Reading the per-rho nu lines below: tlasso and t*var-lasso print a scalar `nu`,
+  run_em_diagonal a `median nu`/`median eta` over coordinates. The two nu's are NOT
+  comparable -- tau ~ Gamma(nu/2, nu/2) for the t models, so small nu is the heavy
+  tail, while EM_algorithm's tau_j ~ Inv-Gamma(2/nu_j, 2/nu_j) puts the heavy tail at
+  large nu_j.
+==============================================================================
+
+Replicate 1/50
+  Theta: 84/4950 edges
+  pilot fit of run_tlasso at rho=0.30349
+  [warn] glasso failed at iter 10: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+  [warn] glasso failed at iter 11: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+  [warn] glasso failed at iter 12: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+  -> rho_max = max|S_ij| (off-diag) = 259.54573
+  [note] pilot fit hit a glasso ConvergenceWarning (suppressed)
+  rho grid: [259.54572622 203.68109641 159.84077118 125.43663885  98.43765299
+  77.24992964  60.62265249  47.57423097  37.33435209  29.29850504
+  22.99229395  18.04343191  14.15976309  11.11201527   8.72026477
+   6.84331472   5.37035946   4.21444313   3.30732627   2.59545726]
+Running run_tlasso over 20 rho values, extending until FPR >= 0.5...
+  rho=259.54573 (1/20)
+    fp=0.0039 tp=0.0238  [0.1s]
+   nu  = 0.1000
+  rho=203.68110 (2/20)
+    fp=0.0078 tp=0.0714  [0.1s]
+   nu  = 0.1000
+  rho=159.84077 (3/20)
+    fp=0.0158 tp=0.1310  [0.1s]
+   nu  = 0.1000
+  rho=125.43664 (4/20)
+    fp=0.0360 tp=0.2143  [0.2s]
+   nu  = 0.1000
+  rho=98.43765 (5/20)
+    fp=0.0793 tp=0.3214  [0.2s]
+   nu  = 0.1000
+  rho=77.24993 (6/20)
+    fp=0.1702 tp=0.5000  [0.3s]
+   nu  = 0.1000
+  rho=60.62265 (7/20)
+    fp=0.2561 tp=0.5952  [0.5s]
+   nu  = 0.1000
+  rho=47.57423 (8/20)
+    fp=0.3432 tp=0.6429  [0.4s]
+   nu  = 0.1000
+  rho=37.33435 (9/20)
+    fp=0.4170 tp=0.6786  [0.4s]
+   nu  = 0.1000
+  rho=29.29851 (10/20)
+    fp=0.4881 tp=0.6905  [0.7s]
+   nu  = 0.1000
+  rho=22.99229 (11/20)
+    fp=0.5452 tp=0.7024  [0.8s]
+   nu  = 0.1000
+  FPR 0.5452 >= fp_end=0.5; stopping after 11 fits
+  grid stopped 9 points early at rho=22.99229, ending at FPR 0.5452
+  pilot fit of run_tstar_varlasso at rho=0.30349
+  -> rho_max = max|S_ij| (off-diag) = 0.75545
+  rho grid: [0.75545443 0.59285039 0.46524526 0.36510586 0.28652046 0.22484979
+ 0.17645311 0.13847334 0.10866833 0.08527856 0.0669232  0.05251865
+ 0.04121453 0.03234352 0.0253819  0.0199187  0.0156314  0.01226689
+ 0.00962657 0.00755454]
+Running run_tstar_varlasso over 20 rho values, extending until FPR >= 0.5...
+  rho=0.75545 (1/20)
+    fp=0.0012 tp=0.0119  [1.3s]
+   nu  = 38.2600
+  rho=0.59285 (2/20)
+    fp=0.0047 tp=0.0476  [1.3s]
+   nu  = 28.5883
+  rho=0.46525 (3/20)
+    fp=0.0129 tp=0.1190  [1.3s]
+   nu  = 21.3802
+  rho=0.36511 (4/20)
+    fp=0.0273 tp=0.2143  [1.3s]
+   nu  = 16.0918
+  rho=0.28652 (5/20)
+    fp=0.0536 tp=0.3214  [1.1s]
+   nu  = 12.1944
+  rho=0.22485 (6/20)
+    fp=0.0958 tp=0.4524  [0.9s]
+   nu  = 9.3616
+  rho=0.17645 (7/20)
+    fp=0.1307 tp=0.5595  [0.7s]
+   nu  = 7.2845
+  rho=0.13847 (8/20)
+    fp=0.1737 tp=0.6190  [0.6s]
+   nu  = 5.7729
+  rho=0.10867 (9/20)
+    fp=0.2133 tp=0.6548  [0.6s]
+   nu  = 4.6627
+  rho=0.08528 (10/20)
+    fp=0.2464 tp=0.6905  [0.5s]
+   nu  = 3.8345
+  rho=0.06692 (11/20)
+    fp=0.2772 tp=0.7024  [0.2s]
+   nu  = 3.2057
+  rho=0.05252 (12/20)
+    fp=0.3087 tp=0.7143  [0.3s]
+   nu  = 2.7187
+  rho=0.04121 (13/20)
+    fp=0.3358 tp=0.7143  [0.4s]
+   nu  = 2.3346
+  rho=0.03234 (14/20)
+    fp=0.3594 tp=0.7262  [0.3s]
+   nu  = 2.0260
+  rho=0.02538 (15/20)
+    fp=0.3827 tp=0.7262  [0.4s]
+   nu  = 1.7744
+  rho=0.01992 (16/20)
+    fp=0.4003 tp=0.7262  [0.4s]
+   nu  = 1.5664
+  rho=0.01563 (17/20)
+    fp=0.4168 tp=0.7262  [0.4s]
+   nu  = 1.3923
+  rho=0.01227 (18/20)
+    fp=0.4357 tp=0.7262  [0.6s]
+   nu  = 1.2450
+  rho=0.00963 (19/20)
+  [warn] glasso failed at iter 6: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+  [warn] glasso failed at iter 7: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+    fp=0.4501 tp=0.7143  [1.8s]  [STALE: glasso failed on 2 EM iters]
+   nu  = 1.1193
+  rho=0.00755 (20/20)
+    fp=0.4599 tp=0.7143  [1.0s]
+   nu  = 1.0114
+  rho=0.00593 (21/21)  [extra 1/50]
+    fp=0.4710 tp=0.6905  [2.3s]
+   nu  = 0.9183
+  rho=0.00465 (22/22)  [extra 2/50]
+    fp=0.4817 tp=0.7024  [1.6s]
+   nu  = 0.8374
+  rho=0.00365 (23/23)  [extra 3/50]
+    fp=0.4877 tp=0.7143  [3.8s]
+   nu  = 0.7667
+  rho=0.00287 (24/24)  [extra 4/50]
+    fp=0.4914 tp=0.7024  [2.0s]
+   nu  = 0.7050
+  rho=0.00225 (25/25)  [extra 5/50]
+    fp=0.4938 tp=0.7143  [1.9s]
+   nu  = 0.6509
+  rho=0.00176 (26/26)  [extra 6/50]
+    fp=0.4965 tp=0.7262  [1.5s]
+   nu  = 0.6033
+  rho=0.00138 (27/27)  [extra 7/50]
+    fp=0.4969 tp=0.7143  [2.2s]
+   nu  = 0.5612
+  rho=0.00109 (28/28)  [extra 8/50]
+  [warn] glasso failed at iter 3: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+    fp=0.4951 tp=0.7024  [2.1s]  [STALE: glasso failed on 1 EM iters]
+   nu  = 0.5241
+  rho=0.00085 (29/29)  [extra 9/50]
+    fp=0.4942 tp=0.7024  [1.4s]
+   nu  = 0.4913
+  rho=0.00067 (30/30)  [extra 10/50]
+    fp=0.4908 tp=0.7143  [1.8s]
+   nu  = 0.4620
+  rho=0.00053 (31/31)  [extra 11/50]
+    fp=0.4918 tp=0.7143  [1.4s]
+   nu  = 0.4359
+  rho=0.00041 (32/32)  [extra 12/50]
+  [warn] glasso failed at iter 3: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+    fp=0.5908 tp=0.7500  [0.1s]  [STALE: glasso failed on 1 EM iters]
+   nu  = 0.4414
+  FPR 0.5908 >= fp_end=0.5; stopping after 32 fits
+  [note] 14/32 fits hit a glasso ConvergenceWarning (suppressed)
+  [WARN] 3/32 points came from a fit whose glasso failed; those Thetas are stale, not estimates
+  grid extended by 12 points down to rho=0.00041, ending at FPR 0.5908
+  pilot fit of run_em_diagonal at rho=0.30349
+  -> rho_max = max|S_ij| (off-diag) = 0.71300
+  rho grid: [0.71299896 0.55953305 0.43909914 0.34458743 0.27041842 0.21221355
+ 0.1665367  0.13069133 0.10256133 0.08048602 0.06316221 0.04956717
+ 0.03889833 0.03052586 0.02395547 0.01879929 0.01475293 0.01157751
+ 0.00908557 0.00712999]
+Running run_em_diagonal over 20 rho values, extending until FPR >= 0.5...
+  rho=0.71300 (1/20)
+    fp=0.0000 tp=0.0119  [7.7s]
+   median nu  = 0.064
+   median |eta| = 6.746
+  rho=0.55953 (2/20)
+    fp=0.0008 tp=0.0476  [7.7s]
+   median nu  = 0.086
+   median |eta| = 5.761
+  rho=0.43910 (3/20)
+    fp=0.0062 tp=0.1071  [8.0s]
+   median nu  = 0.112
+   median |eta| = 5.138
+  rho=0.34459 (4/20)
+    fp=0.0154 tp=0.1667  [7.8s]
+   median nu  = 0.148
+   median |eta| = 4.267
+  rho=0.27042 (5/20)
+    fp=0.0356 tp=0.2143  [7.7s]
+   median nu  = 0.208
+   median |eta| = 3.395
+  rho=0.21221 (6/20)
+    fp=0.0627 tp=0.3690  [7.8s]
+   median nu  = 0.263
+   median |eta| = 2.614
+  rho=0.16654 (7/20)
+    fp=0.0954 tp=0.4524  [7.5s]
+   median nu  = 0.3
+   median |eta| = 2.516
+  rho=0.13069 (8/20)
+    fp=0.1289 tp=0.5595  [7.5s]
+   median nu  = 0.344
+   median |eta| = 2.093
+  rho=0.10256 (9/20)
+    fp=0.1636 tp=0.6310  [7.3s]
+   median nu  = 0.397
+   median |eta| = 2.006
+  rho=0.08049 (10/20)
+    fp=0.1987 tp=0.6786  [6.9s]
+   median nu  = 0.402
+   median |eta| = 2.057
+  rho=0.06316 (11/20)
+    fp=0.2283 tp=0.7024  [6.5s]  [nu->NU_MAX x370]
+   median nu  = 0.41
+   median |eta| = 2.185
+  rho=0.04957 (12/20)
+    fp=0.2520 tp=0.7024  [6.4s]  [nu->NU_MAX x445]
+   median nu  = 0.415
+   median |eta| = 2.367
+  rho=0.03890 (13/20)
+    fp=0.2721 tp=0.7381  [6.7s]  [nu->NU_MAX x974]
+   median nu  = 0.371
+   median |eta| = 3.333
+  rho=0.03053 (14/20)
+    fp=0.2937 tp=0.7262  [6.5s]  [nu->NU_MAX x2152]
+   median nu  = 0.375
+   median |eta| = 3.095
+  rho=0.02396 (15/20)
+    fp=0.3079 tp=0.7500  [6.1s]  [nu->NU_MAX x2731]
+   median nu  = 0.335
+   median |eta| = 4.243
+  rho=0.01880 (16/20)
+    fp=0.3298 tp=0.7262  [6.2s]  [nu->NU_MAX x3920]
+   median nu  = 0.36
+   median |eta| = 4.127
+  rho=0.01475 (17/20)
+    fp=0.3434 tp=0.7262  [5.9s]  [nu->NU_MAX x4450]
+   median nu  = 0.323
+   median |eta| = 5.213
+  rho=0.01158 (18/20)
+    fp=0.3580 tp=0.7143  [6.0s]  [nu->NU_MAX x6570]
+   median nu  = 0.337
+   median |eta| = 4.308
+  rho=0.00909 (19/20)
+    fp=0.3734 tp=0.6905  [6.3s]  [nu->NU_MAX x6193]
+   median nu  = 0.29
+   median |eta| = 6.714
+  rho=0.00713 (20/20)
+    fp=0.3903 tp=0.7143  [6.3s]  [nu->NU_MAX x7651]
+   median nu  = 0.318
+   median |eta| = 5.352
+  rho=0.00560 (21/21)  [extra 1/50]
+    fp=0.4003 tp=0.6786  [6.2s]  [nu->NU_MAX x7117]
+   median nu  = 0.316
+   median |eta| = 5.789
+  rho=0.00439 (22/22)  [extra 2/50]
+  [warn] glasso failed at iter 41: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+    fp=0.4201 tp=0.6905  [6.6s]  [STALE: glasso failed on 1 EM iters]  [nu->NU_MAX x7729]
+   median nu  = 0.311
+   median |eta| = 6.112
+  rho=0.00345 (23/23)  [extra 3/50]
+  [warn] glasso failed at iter 25: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+    fp=0.4478 tp=0.6667  [6.5s]  [STALE: glasso failed on 1 EM iters]  [nu->NU_MAX x7981]
+   median nu  = 0.365
+   median |eta| = 5.163
+  rho=0.00270 (24/24)  [extra 4/50]
+    fp=0.4408 tp=0.7024  [6.3s]  [nu->NU_MAX x7771]
+   median nu  = 0.296
+   median |eta| = 6.744
+  rho=0.00212 (25/25)  [extra 5/50]
+  [warn] glasso failed at iter 38: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+    fp=0.4755 tp=0.6667  [6.2s]  [STALE: glasso failed on 1 EM iters]  [nu->NU_MAX x8363]
+   median nu  = 0.343
+   median |eta| = 5.423
+  rho=0.00167 (26/26)  [extra 6/50]
+    fp=0.4585 tp=0.7024  [6.2s]  [nu->NU_MAX x7916]
+   median nu  = 0.294
+   median |eta| = 7.405
+  rho=0.00131 (27/27)  [extra 7/50]
+    fp=0.5002 tp=0.6548  [5.8s]  [nu->NU_MAX x8638]
+   median nu  = 0.331
+   median |eta| = 5.82
+  FPR 0.5002 >= fp_end=0.5; stopping after 27 fits
+  [note] 10/27 fits hit a glasso ConvergenceWarning (suppressed)
+  [WARN] 3/27 points came from a fit whose glasso failed; those Thetas are stale, not estimates
+  grid extended by 7 points down to rho=0.00131, ending at FPR 0.5002
+  pilot fit of run_em_exact at rho=0.30349
+  -> rho_max = max|S_ij| (off-diag) = 0.74772
+  rho grid: [0.74772438 0.58678416 0.46048472 0.36136998 0.28358869 0.22254905
+ 0.17464759 0.13705644 0.10755641 0.08440596 0.06623842 0.05198126
+ 0.04079281 0.03201257 0.02512218 0.01971488 0.01547145 0.01214137
+ 0.00952806 0.00747724]
+Running run_em_exact over 20 rho values, extending until FPR >= 0.5...
+  rho=0.74772 (1/20)
+    fp=0.0000 tp=0.0119  [7.9s]
+   median nu  = 0.06
+   median |eta| = 6.881
+  rho=0.58678 (2/20)
+    fp=0.0006 tp=0.0357  [7.9s]
+   median nu  = 0.081
+   median |eta| = 5.943
+  rho=0.46048 (3/20)
+    fp=0.0041 tp=0.0952  [7.9s]
+   median nu  = 0.108
+   median |eta| = 5.038
+  rho=0.36137 (4/20)
+    fp=0.0138 tp=0.1429  [8.2s]
+   median nu  = 0.151
+   median |eta| = 3.702
+  rho=0.28359 (5/20)
+    fp=0.0345 tp=0.2143  [8.4s]
+   median nu  = 0.227
+   median |eta| = 2.563
+  rho=0.22255 (6/20)
+    fp=0.0664 tp=0.3571  [8.4s]
+   median nu  = 0.323
+   median |eta| = 1.414
+  rho=0.17465 (7/20)
+    fp=0.1054 tp=0.4643  [7.3s]
+   median nu  = 0.43
+   median |eta| = 0.801
+  rho=0.13706 (8/20)
+    fp=0.1492 tp=0.5595  [6.2s]
+   median nu  = 0.587
+   median |eta| = 0.43
+  rho=0.10756 (9/20)
+    fp=0.1973 tp=0.6548  [5.9s]  [nu->NU_MAX x176]
+   median nu  = 0.78
+   median |eta| = 0.242
+  rho=0.08441 (10/20)
+    fp=0.2337 tp=0.6905  [5.9s]  [nu->NU_MAX x366]
+   median nu  = 0.987
+   median |eta| = 0.133
+  rho=0.06624 (11/20)
+    fp=0.2674 tp=0.6786  [5.0s]  [nu->NU_MAX x793]
+   median nu  = 1.168
+   median |eta| = 0.072
+  rho=0.05198 (12/20)
+    fp=0.3037 tp=0.7143  [2.7s]  [nu->NU_MAX x797]
+   median nu  = 1.403
+   median |eta| = 0.041
+  rho=0.04079 (13/20)
+    fp=0.3358 tp=0.7381  [2.0s]  [nu->NU_MAX x1541]
+   median nu  = 1.649
+   median |eta| = 0.022
+  rho=0.03201 (14/20)
+    fp=0.3654 tp=0.7381  [1.7s]  [nu->NU_MAX x2525]
+   median nu  = 1.949
+   median |eta| = 0.015
+  rho=0.02512 (15/20)
+    fp=0.3954 tp=0.7500  [1.5s]  [nu->NU_MAX x3126]
+   median nu  = 2.0
+   median |eta| = 0.011
+  rho=0.01971 (16/20)
+    fp=0.4211 tp=0.7500  [1.3s]  [nu->NU_MAX x3484]
+   median nu  = 2.0
+   median |eta| = 0.008
+  rho=0.01547 (17/20)
+    fp=0.4542 tp=0.7381  [1.3s]  [nu->NU_MAX x3928]
+   median nu  = 2.0
+   median |eta| = 0.006
+  rho=0.01214 (18/20)
+    fp=0.4850 tp=0.7619  [1.2s]  [nu->NU_MAX x3748]
+   median nu  = 2.0
+   median |eta| = 0.005
+  rho=0.00953 (19/20)
+    fp=0.5185 tp=0.7619  [1.7s]  [nu->NU_MAX x4783]
+   median nu  = 2.0
+   median |eta| = 0.004
+  FPR 0.5185 >= fp_end=0.5; stopping after 19 fits
+  [note] 1/19 fits hit a glasso ConvergenceWarning (suppressed)
+  grid stopped 1 points early at rho=0.00953, ending at FPR 0.5185
+  graphical_lasso rho_max = max|S_ij| (off-diag) = 2.01936
+  rho grid: [2.01936496 1.58471679 1.2436223  0.975945   0.76588257 0.60103398
+ 0.47166741 0.3701457  0.29047553 0.22795357 0.17888884 0.1403848
+ 0.11016837 0.08645573 0.06784699 0.0532436  0.04178345 0.03278998
+ 0.02573226 0.02019365]
+Running graphical_lasso over 20 rho values, extending until FPR >= 0.5...
+  rho=2.01936 (1/20)
+    fp=0.0000 tp=0.0000  [0.0s]
+  rho=1.58472 (2/20)
+    fp=0.0004 tp=0.0000  [5.5s]
+  rho=1.24362 (3/20)
+    fp=0.0006 tp=0.0000  [0.0s]
+  rho=0.97594 (4/20)
+    fp=0.0010 tp=0.0000  [5.4s]
+  rho=0.76588 (5/20)
+    fp=0.0033 tp=0.0119  [0.0s]
+  rho=0.60103 (6/20)
+    fp=0.0115 tp=0.0714  [0.0s]
+  rho=0.47167 (7/20)
+    fp=0.0275 tp=0.1548  [5.5s]
+  rho=0.37015 (8/20)
+    fp=0.0610 tp=0.2738  [0.0s]
+  rho=0.29048 (9/20)
+    fp=0.1186 tp=0.4167  [0.0s]
+  rho=0.22795 (10/20)
+    fp=0.1827 tp=0.5119  [0.0s]
+  rho=0.17889 (11/20)
+    fp=0.2491 tp=0.5833  [0.1s]
+  rho=0.14038 (12/20)
+    fp=0.3206 tp=0.6190  [0.0s]
+  rho=0.11017 (13/20)
+    fp=0.3896 tp=0.6429  [0.0s]
+  rho=0.08646 (14/20)
+    fp=0.4523 tp=0.6786  [0.1s]
+  rho=0.06785 (15/20)
+    fp=0.5037 tp=0.6905  [0.0s]
+  FPR 0.5037 >= fp_end=0.5; stopping after 15 fits
+  [note] 3/15 fits hit a glasso ConvergenceWarning (suppressed)
+  grid stopped 5 points early at rho=0.06785, ending at FPR 0.5037
+
+(p=100, n=50) over 1 replicates
+  Asymmetric model (Diagonal): AUC = 0.299 (SE 0.000)
+  Asymmetric model (Exact):    AUC = 0.301 (SE 0.000)
+  Classical t-model (TLASSO): AUC = 0.260 (SE 0.000)
+  Alternative t-model (TSTAR_VARLASSO): AUC = 0.298 (SE 0.000)
+  Naive Gaussian glasso (GGM): AUC = 0.256 (SE 0.000)
+Replicate 2/50
+  Theta: 108/4950 edges
+  pilot fit of run_tlasso at rho=0.30349
+  [warn] glasso failed at iter 12: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+  [warn] glasso failed at iter 13: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+  [warn] glasso failed at iter 14: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+  -> rho_max = max|S_ij| (off-diag) = 212.41719
+  [note] pilot fit hit a glasso ConvergenceWarning (suppressed)
+  rho grid: [212.41719329 166.69651031 130.81674849 102.65974767  80.56326053
+  63.22282195  49.61473988  38.9356618   30.5551488   23.97845766
+  18.81733373  14.76709026  11.58862131   9.09428612   7.1368317
+   5.60069984   4.39520504   3.44918097   2.70677916   2.12417193]
+Running run_tlasso over 20 rho values, extending until FPR >= 0.5...
+  rho=212.41719 (1/20)
+    fp=0.0025 tp=0.0278  [0.1s]
+   nu  = 0.1000
+  rho=166.69651 (2/20)
+    fp=0.0068 tp=0.0278  [0.1s]
+   nu  = 0.1000
+  rho=130.81675 (3/20)
+    fp=0.0171 tp=0.0463  [0.1s]
+   nu  = 0.1000
+  rho=102.65975 (4/20)
+    fp=0.0388 tp=0.1481  [0.2s]
+   nu  = 0.1000
+  rho=80.56326 (5/20)
+    fp=0.0847 tp=0.2963  [0.2s]
+   nu  = 0.1000
+  rho=63.22282 (6/20)
+    fp=0.1722 tp=0.4444  [0.3s]
+   nu  = 0.1000
+  rho=49.61474 (7/20)
+    fp=0.2747 tp=0.6019  [0.7s]
+   nu  = 0.1000
+  rho=38.93566 (8/20)
+    fp=0.3589 tp=0.6481  [0.5s]
+   nu  = 0.1000
+  rho=30.55515 (9/20)
+    fp=0.4389 tp=0.6667  [0.5s]
+   nu  = 0.1000
+  rho=23.97846 (10/20)
+    fp=0.5101 tp=0.7037  [0.6s]
+   nu  = 0.1000
+  FPR 0.5101 >= fp_end=0.5; stopping after 10 fits
+  grid stopped 10 points early at rho=23.97846, ending at FPR 0.5101
+  pilot fit of run_tstar_varlasso at rho=0.30349
+  -> rho_max = max|S_ij| (off-diag) = 0.66273
+  rho grid: [0.66273047 0.52008434 0.40814137 0.32029301 0.25135313 0.19725188
+ 0.15479538 0.12147722 0.09533046 0.07481153 0.05870909 0.04607254
+ 0.03615589 0.02837369 0.02226654 0.01747389 0.01371281 0.01076126
+ 0.00844501 0.0066273 ]
+Running run_tstar_varlasso over 20 rho values, extending until FPR >= 0.5...
+  rho=0.66273 (1/20)
+    fp=0.0010 tp=0.0278  [1.3s]
+   nu  = 47.4756
+  rho=0.52008 (2/20)
+    fp=0.0031 tp=0.0278  [1.3s]
+   nu  = 35.9346
+  rho=0.40814 (3/20)
+    fp=0.0128 tp=0.0463  [1.3s]
+   nu  = 26.3805
+  rho=0.32029 (4/20)
+    fp=0.0285 tp=0.1574  [1.4s]
+   nu  = 19.1334
+  rho=0.25135 (5/20)
+    fp=0.0589 tp=0.2778  [1.4s]
+   nu  = 13.9887
+  rho=0.19725 (6/20)
+    fp=0.0983 tp=0.3519  [1.1s]
+   nu  = 10.4197
+  rho=0.15480 (7/20)
+    fp=0.1402 tp=0.4444  [0.8s]
+   nu  = 7.9558
+  rho=0.12148 (8/20)
+    fp=0.1813 tp=0.5370  [0.9s]
+   nu  = 6.2081
+  rho=0.09533 (9/20)
+    fp=0.2164 tp=0.5926  [0.7s]
+   nu  = 4.9483
+  rho=0.07481 (10/20)
+    fp=0.2538 tp=0.6111  [0.6s]
+   nu  = 4.0261
+  rho=0.05871 (11/20)
+    fp=0.2900 tp=0.6204  [0.4s]
+   nu  = 3.3369
+  rho=0.04607 (12/20)
+    fp=0.3255 tp=0.6481  [0.4s]
+   nu  = 2.8104
+  rho=0.03616 (13/20)
+    fp=0.3598 tp=0.6574  [0.4s]
+   nu  = 2.3988
+  rho=0.02837 (14/20)
+    fp=0.3781 tp=0.6852  [0.4s]
+   nu  = 2.0712
+  rho=0.02227 (15/20)
+    fp=0.4007 tp=0.7037  [0.4s]
+   nu  = 1.8062
+  rho=0.01747 (16/20)
+    fp=0.4203 tp=0.6944  [0.4s]
+   nu  = 1.5887
+  rho=0.01371 (17/20)
+    fp=0.4387 tp=0.7222  [0.5s]
+   nu  = 1.4078
+  rho=0.01076 (18/20)
+    fp=0.4537 tp=0.7315  [0.6s]
+   nu  = 1.2556
+  rho=0.00845 (19/20)
+    fp=0.4672 tp=0.7315  [1.0s]
+   nu  = 1.1262
+  rho=0.00663 (20/20)
+    fp=0.4769 tp=0.7315  [1.1s]
+   nu  = 1.0154
+  rho=0.00520 (21/21)  [extra 1/50]
+    fp=0.4851 tp=0.7222  [1.8s]
+   nu  = 0.9197
+  rho=0.00408 (22/22)  [extra 2/50]
+    fp=0.4901 tp=0.7407  [2.0s]
+   nu  = 0.8363
+  rho=0.00320 (23/23)  [extra 3/50]
+    fp=0.4944 tp=0.7407  [3.2s]
+   nu  = 0.7634
+  rho=0.00251 (24/24)  [extra 4/50]
+    fp=0.4971 tp=0.7685  [1.5s]
+   nu  = 0.7001
+  rho=0.00197 (25/25)  [extra 5/50]
+    fp=0.5017 tp=0.7685  [1.8s]
+   nu  = 0.6454
+  FPR 0.5017 >= fp_end=0.5; stopping after 25 fits
+  [note] 8/25 fits hit a glasso ConvergenceWarning (suppressed)
+  grid extended by 5 points down to rho=0.00197, ending at FPR 0.5017
+  pilot fit of run_em_diagonal at rho=0.30349
+  -> rho_max = max|S_ij| (off-diag) = 0.57596
+  rho grid: [0.57595597 0.45198719 0.35470145 0.2783555  0.21844226 0.17142474
+ 0.13452727 0.10557162 0.08284838 0.06501609 0.05102203 0.04004004
+ 0.03142182 0.02465859 0.01935107 0.01518595 0.01191732 0.00935224
+ 0.00733926 0.00575956]
+Running run_em_diagonal over 20 rho values, extending until FPR >= 0.5...
+  rho=0.57596 (1/20)
+    fp=0.0004 tp=0.0000  [8.1s]
+   median nu  = 0.061
+   median |eta| = 6.008
+  rho=0.45199 (2/20)
+    fp=0.0027 tp=0.0185  [8.1s]
+   median nu  = 0.083
+   median |eta| = 5.67
+  rho=0.35470 (3/20)
+    fp=0.0081 tp=0.0648  [8.0s]
+   median nu  = 0.114
+   median |eta| = 4.625
+  rho=0.27836 (4/20)
+    fp=0.0186 tp=0.1481  [8.0s]
+   median nu  = 0.16
+   median |eta| = 4.002
+  rho=0.21844 (5/20)
+    fp=0.0469 tp=0.2500  [7.8s]
+   median nu  = 0.222
+   median |eta| = 3.43
+  rho=0.17142 (6/20)
+    fp=0.0774 tp=0.3981  [7.6s]
+   median nu  = 0.289
+   median |eta| = 2.762
+  rho=0.13453 (7/20)
+    fp=0.1113 tp=0.4907  [7.5s]
+   median nu  = 0.325
+   median |eta| = 2.423
+  rho=0.10557 (8/20)
+    fp=0.1411 tp=0.5278  [7.3s]
+   median nu  = 0.337
+   median |eta| = 2.181
+  rho=0.08285 (9/20)
+    fp=0.1743 tp=0.5278  [7.2s]
+   median nu  = 0.36
+   median |eta| = 2.148
+  rho=0.06502 (10/20)
+    fp=0.2034 tp=0.5926  [7.4s]
+   median nu  = 0.371
+   median |eta| = 2.457
+  rho=0.05102 (11/20)
+    fp=0.2334 tp=0.6204  [7.0s]  [nu->NU_MAX x1]
+   median nu  = 0.357
+   median |eta| = 2.777
+  rho=0.04004 (12/20)
+    fp=0.2633 tp=0.6481  [7.0s]  [nu->NU_MAX x43]
+   median nu  = 0.336
+   median |eta| = 3.266
+  rho=0.03142 (13/20)
+    fp=0.2869 tp=0.6852  [6.7s]  [nu->NU_MAX x644]
+   median nu  = 0.344
+   median |eta| = 3.449
+  rho=0.02466 (14/20)
+    fp=0.3071 tp=0.6759  [6.9s]  [nu->NU_MAX x1443]
+   median nu  = 0.307
+   median |eta| = 4.196
+  rho=0.01935 (15/20)
+    fp=0.3306 tp=0.6574  [6.9s]  [nu->NU_MAX x1873]
+   median nu  = 0.285
+   median |eta| = 4.591
+  rho=0.01519 (16/20)
+    fp=0.3435 tp=0.6481  [6.6s]  [nu->NU_MAX x3132]
+   median nu  = 0.259
+   median |eta| = 6.345
+  rho=0.01192 (17/20)
+    fp=0.3651 tp=0.6667  [6.6s]  [nu->NU_MAX x4934]
+   median nu  = 0.292
+   median |eta| = 5.436
+  rho=0.00935 (18/20)
+    fp=0.3748 tp=0.6389  [7.3s]  [nu->NU_MAX x5782]
+   median nu  = 0.264
+   median |eta| = 6.606
+  rho=0.00734 (19/20)
+    fp=0.3936 tp=0.6481  [7.5s]  [nu->NU_MAX x7087]
+   median nu  = 0.368
+   median |eta| = 4.234
+  rho=0.00576 (20/20)
+    fp=0.4124 tp=0.6296  [7.6s]  [nu->NU_MAX x6965]
+   median nu  = 0.297
+   median |eta| = 6.02
+  rho=0.00452 (21/21)  [extra 1/50]
+    fp=0.4151 tp=0.6481  [7.0s]  [nu->NU_MAX x7483]
+   median nu  = 0.321
+   median |eta| = 6.066
+  rho=0.00355 (22/22)  [extra 2/50]
+    fp=0.4407 tp=0.5833  [6.7s]  [nu->NU_MAX x7667]
+   median nu  = 0.34
+   median |eta| = 5.339
+  rho=0.00278 (23/23)  [extra 3/50]
+    fp=0.4300 tp=0.6019  [7.0s]  [nu->NU_MAX x7779]
+   median nu  = 0.299
+   median |eta| = 6.724
+  rho=0.00218 (24/24)  [extra 4/50]
+    fp=0.4626 tp=0.5926  [6.7s]  [nu->NU_MAX x7788]
+   median nu  = 0.328
+   median |eta| = 6.107
+  rho=0.00171 (25/25)  [extra 5/50]
+    fp=0.4599 tp=0.5741  [6.6s]  [nu->NU_MAX x8037]
+   median nu  = 0.274
+   median |eta| = 7.124
+  rho=0.00135 (26/26)  [extra 6/50]
+    fp=0.4762 tp=0.5926  [6.8s]  [nu->NU_MAX x7931]
+   median nu  = 0.271
+   median |eta| = 7.192
+  rho=0.00106 (27/27)  [extra 7/50]
+    fp=0.4855 tp=0.5463  [6.4s]  [nu->NU_MAX x8157]
+   median nu  = 0.302
+   median |eta| = 6.317
+  rho=0.00083 (28/28)  [extra 8/50]
+    fp=0.5012 tp=0.6019  [6.4s]  [nu->NU_MAX x8060]
+   median nu  = 0.31
+   median |eta| = 6.017
+  FPR 0.5012 >= fp_end=0.5; stopping after 28 fits
+  [note] 12/28 fits hit a glasso ConvergenceWarning (suppressed)
+  grid extended by 8 points down to rho=0.00083, ending at FPR 0.5012
+  pilot fit of run_em_exact at rho=0.30349
+  -> rho_max = max|S_ij| (off-diag) = 0.59434
+  rho grid: [0.59434175 0.46641561 0.3660243  0.28724122 0.22541541 0.17689699
+ 0.13882168 0.1089417  0.08549308 0.06709155 0.05265076 0.04131821
+ 0.03242488 0.02544575 0.0199688  0.01567072 0.01229775 0.00965078
+ 0.00757355 0.00594342]
+Running run_em_exact over 20 rho values, extending until FPR >= 0.5...
+  rho=0.59434 (1/20)
+    fp=0.0004 tp=0.0000  [8.1s]
+   median nu  = 0.059
+   median |eta| = 6.081
+  rho=0.46642 (2/20)
+    fp=0.0017 tp=0.0185  [8.2s]
+   median nu  = 0.079
+   median |eta| = 5.734
+  rho=0.36602 (3/20)
+    fp=0.0074 tp=0.0556  [8.1s]
+   median nu  = 0.109
+   median |eta| = 4.414
+  rho=0.28724 (4/20)
+    fp=0.0180 tp=0.1389  [8.0s]
+   median nu  = 0.157
+   median |eta| = 3.578
+  rho=0.22542 (5/20)
+    fp=0.0458 tp=0.2407  [7.6s]
+   median nu  = 0.228
+   median |eta| = 2.271
+  rho=0.17690 (6/20)
+    fp=0.0828 tp=0.3981  [7.0s]
+   median nu  = 0.34
+   median |eta| = 1.347
+  rho=0.13882 (7/20)
+    fp=0.1258 tp=0.5000  [6.4s]
+   median nu  = 0.455
+   median |eta| = 0.754
+  rho=0.10894 (8/20)
+    fp=0.1679 tp=0.5370  [5.9s]
+   median nu  = 0.618
+   median |eta| = 0.411
+  rho=0.08549 (9/20)
+    fp=0.2171 tp=0.5648  [6.1s]
+   median nu  = 0.791
+   median |eta| = 0.213
+  rho=0.06709 (10/20)
+    fp=0.2602 tp=0.6111  [5.9s]  [nu->NU_MAX x47]
+   median nu  = 0.965
+   median |eta| = 0.127
+  rho=0.05265 (11/20)
+    fp=0.2995 tp=0.6481  [4.5s]  [nu->NU_MAX x585]
+   median nu  = 1.157
+   median |eta| = 0.07
+  rho=0.04132 (12/20)
+    fp=0.3331 tp=0.6852  [2.2s]  [nu->NU_MAX x969]
+   median nu  = 1.367
+   median |eta| = 0.038
+  rho=0.03242 (13/20)
+    fp=0.3676 tp=0.7130  [2.0s]  [nu->NU_MAX x1876]
+   median nu  = 1.636
+   median |eta| = 0.023
+  rho=0.02545 (14/20)
+    fp=0.3947 tp=0.7222  [1.9s]  [nu->NU_MAX x2592]
+   median nu  = 1.926
+   median |eta| = 0.014
+  rho=0.01997 (15/20)
+    fp=0.4281 tp=0.7500  [1.5s]  [nu->NU_MAX x3520]
+   median nu  = 2.0
+   median |eta| = 0.009
+  rho=0.01567 (16/20)
+    fp=0.4603 tp=0.7593  [1.3s]  [nu->NU_MAX x3927]
+   median nu  = 2.0
+   median |eta| = 0.007
+  rho=0.01230 (17/20)
+    fp=0.4880 tp=0.7963  [1.3s]  [nu->NU_MAX x3985]
+   median nu  = 2.0
+   median |eta| = 0.006
+  rho=0.00965 (18/20)
+  [warn] glasso failed at iter 8: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+  [warn] glasso failed at iter 9: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+  [warn] glasso failed at iter 10: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+  [warn] glasso failed at iter 11: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+  [warn] glasso failed at iter 12: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+  [warn] glasso failed at iter 13: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+    fp=0.5196 tp=0.8333  [0.5s]  [STALE: glasso failed on 6 EM iters]  [nu->NU_MAX x920]
+   median nu  = 2.0
+   median |eta| = 0.004
+  FPR 0.5196 >= fp_end=0.5; stopping after 18 fits
+  [note] 1/18 fits hit a glasso ConvergenceWarning (suppressed)
+  [WARN] 1/18 points came from a fit whose glasso failed; those Thetas are stale, not estimates
+  grid stopped 2 points early at rho=0.00965, ending at FPR 0.5196
+  graphical_lasso rho_max = max|S_ij| (off-diag) = 0.91456
+  rho grid: [0.91456222 0.71771182 0.56323151 0.44200154 0.34686512 0.27220586
+ 0.21361626 0.16763749 0.13155519 0.10323925 0.08101803 0.06357971
+ 0.04989481 0.03915545 0.03072763 0.02411381 0.01892356 0.01485045
+ 0.01165404 0.00914562]
+Running graphical_lasso over 20 rho values, extending until FPR >= 0.5...
+  rho=0.91456 (1/20)
+    fp=0.0000 tp=0.0000  [0.0s]
+  rho=0.71771 (2/20)
+    fp=0.0012 tp=0.0278  [5.3s]
+  rho=0.56323 (3/20)
+    fp=0.0056 tp=0.0278  [5.9s]
+  rho=0.44200 (4/20)
+    fp=0.0194 tp=0.0463  [5.9s]
+  rho=0.34687 (5/20)
+    fp=0.0487 tp=0.1852  [5.6s]
+  rho=0.27221 (6/20)
+    fp=0.0967 tp=0.3148  [5.6s]
+  rho=0.21362 (7/20)
+    fp=0.1580 tp=0.4074  [0.0s]
+  rho=0.16764 (8/20)
+    fp=0.2305 tp=0.5185  [0.0s]
+  rho=0.13156 (9/20)
+    fp=0.3026 tp=0.6389  [0.0s]
+  rho=0.10324 (10/20)
+    fp=0.3643 tp=0.6389  [0.0s]
+  rho=0.08102 (11/20)
+    fp=0.4327 tp=0.6481  [0.0s]
+  rho=0.06358 (12/20)
+    fp=0.4955 tp=0.6944  [0.1s]
+  rho=0.04989 (13/20)
+    fp=0.5496 tp=0.7130  [0.1s]
+  FPR 0.5496 >= fp_end=0.5; stopping after 13 fits
+  [note] 5/13 fits hit a glasso ConvergenceWarning (suppressed)
+  grid stopped 7 points early at rho=0.04989, ending at FPR 0.5496
+
+(p=100, n=50) over 2 replicates
+  Asymmetric model (Diagonal): AUC = 0.284 (SE 0.016)
+  Asymmetric model (Exact):    AUC = 0.292 (SE 0.009)
+  Classical t-model (TLASSO): AUC = 0.253 (SE 0.007)
+  Alternative t-model (TSTAR_VARLASSO): AUC = 0.283 (SE 0.016)
+  Naive Gaussian glasso (GGM): AUC = 0.249 (SE 0.007)
+Replicate 3/50
+  Theta: 90/4950 edges
+  pilot fit of run_tlasso at rho=0.30349
+  [warn] glasso failed at iter 9: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+  [warn] glasso failed at iter 10: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+  [warn] glasso failed at iter 11: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+  -> rho_max = max|S_ij| (off-diag) = 59.03136
+  rho grid: [59.03136326 46.32545088 36.35435946 28.52944605 22.38876724 17.56980831
+ 13.78808225 10.82033502  8.49136579  6.66368396  5.22939243  4.10381785
+  3.22051197  2.52732888  1.98334654  1.55645097  1.22144042  0.95853755
+  0.7522219   0.59031363]
+Running run_tlasso over 20 rho values, extending until FPR >= 0.5...
+  rho=59.03136 (1/20)
+    fp=0.2541 tp=0.6889  [0.4s]
+   nu  = 0.1000
+  rho=46.32545 (2/20)
+    fp=0.3393 tp=0.7667  [0.4s]
+   nu  = 0.1000
+  rho=36.35436 (3/20)
+    fp=0.4193 tp=0.7667  [0.5s]
+   nu  = 0.1000
+  rho=28.52945 (4/20)
+    fp=0.4881 tp=0.8000  [0.5s]
+   nu  = 0.1000
+  rho=22.38877 (5/20)
+    fp=0.5420 tp=0.8000  [0.7s]
+   nu  = 0.1000
+  FPR 0.5420 >= fp_end=0.5; stopping after 5 fits
+  grid stopped 15 points early at rho=22.38877, ending at FPR 0.5420
+  pilot fit of run_tstar_varlasso at rho=0.30349
+  -> rho_max = max|S_ij| (off-diag) = 0.90875
+  rho grid: [0.90874899 0.71314983 0.55965144 0.43919205 0.34466034 0.27047564
+ 0.21225845 0.16657194 0.13071899 0.10258303 0.08050305 0.06317557
+ 0.04957766 0.03890656 0.03053231 0.02396054 0.01880327 0.01475605
+ 0.01157996 0.00908749]
+Running run_tstar_varlasso over 20 rho values, extending until FPR >= 0.5...
+  rho=0.90875 (1/20)
+    fp=0.0002 tp=0.0222  [1.3s]
+   nu  = 68.7731
+  rho=0.71315 (2/20)
+    fp=0.0008 tp=0.0333  [1.3s]
+   nu  = 54.8407
+  rho=0.55965 (3/20)
+    fp=0.0039 tp=0.0556  [1.3s]
+   nu  = 41.1875
+  rho=0.43919 (4/20)
+    fp=0.0142 tp=0.1333  [1.3s]
+   nu  = 29.0662
+  rho=0.34466 (5/20)
+    fp=0.0315 tp=0.2333  [1.4s]
+   nu  = 19.5367
+  rho=0.27048 (6/20)
+    fp=0.0634 tp=0.3556  [1.5s]
+   nu  = 13.2342
+  rho=0.21226 (7/20)
+    fp=0.0979 tp=0.4222  [1.1s]
+   nu  = 9.4728
+  rho=0.16657 (8/20)
+    fp=0.1407 tp=0.5222  [0.8s]
+   nu  = 7.1639
+  rho=0.13072 (9/20)
+    fp=0.1811 tp=0.5889  [0.9s]
+   nu  = 5.6200
+  rho=0.10258 (10/20)
+    fp=0.2243 tp=0.6667  [0.7s]
+   nu  = 4.5292
+  rho=0.08050 (11/20)
+    fp=0.2601 tp=0.7556  [0.5s]
+   nu  = 3.7275
+  rho=0.06318 (12/20)
+    fp=0.2872 tp=0.7889  [0.3s]
+   nu  = 3.1222
+  rho=0.04958 (13/20)
+    fp=0.3198 tp=0.7889  [0.4s]
+   nu  = 2.6543
+  rho=0.03891 (14/20)
+    fp=0.3430 tp=0.7889  [0.4s]
+   nu  = 2.2853
+  rho=0.03053 (15/20)
+    fp=0.3704 tp=0.7889  [0.4s]
+   nu  = 1.9887
+  rho=0.02396 (16/20)
+    fp=0.3959 tp=0.8000  [0.4s]
+   nu  = 1.7463
+  rho=0.01880 (17/20)
+    fp=0.4136 tp=0.8111  [0.4s]
+   nu  = 1.5456
+  rho=0.01476 (18/20)
+    fp=0.4302 tp=0.8111  [0.5s]
+   nu  = 1.3773
+  rho=0.01158 (19/20)
+    fp=0.4494 tp=0.7889  [0.8s]
+   nu  = 1.2344
+  rho=0.00909 (20/20)
+    fp=0.4656 tp=0.8000  [0.9s]
+   nu  = 1.1119
+  rho=0.00713 (21/21)  [extra 1/50]
+  [warn] glasso failed at iter 0: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+    fp=0.4786 tp=0.8333  [0.8s]  [STALE: glasso failed on 1 EM iters]
+   nu  = 1.0063
+  rho=0.00560 (22/22)  [extra 2/50]
+    fp=0.4891 tp=0.8333  [1.3s]
+   nu  = 0.9148
+  rho=0.00439 (23/23)  [extra 3/50]
+  [warn] glasso failed at iter 2: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+  [warn] glasso failed at iter 5: Non SPD result: the system is too ill-conditioned for this solver. The system is too ill-conditioned for this solver; keeping previous Theta
+    fp=0.4990 tp=0.8222  [1.0s]  [STALE: glasso failed on 2 EM iters]
+   nu  = 0.8352
+  rho=0.00345 (24/24)  [extra 4/50]
+    fp=0.5076 tp=0.8222  [1.2s]
+   nu  = 0.7659
+  FPR 0.5076 >= fp_end=0.5; stopping after 24 fits
+  [note] 6/24 fits hit a glasso ConvergenceWarning (suppressed)
+  [WARN] 2/24 points came from a fit whose glasso failed; those Thetas are stale, not estimates
+  grid extended by 4 points down to rho=0.00345, ending at FPR 0.5076
+  pilot fit of run_em_diagonal at rho=0.30349
+  -> rho_max = max|S_ij| (off-diag) = 0.57989
+  rho grid: [0.5798861  0.4550714  0.35712182 0.28025491 0.21993283 0.17259448
+ 0.13544524 0.106292   0.08341371 0.06545974 0.05137018 0.04031326
+ 0.03163624 0.02482685 0.01948312 0.01528957 0.01199864 0.00941606
+ 0.00738934 0.00579886]
+Running run_em_diagonal over 20 rho values, extending until FPR >= 0.5...
+  rho=0.57989 (1/20)
+    fp=0.0006 tp=0.0444  [8.3s]
+   median nu  = 0.075
+   median |eta| = 4.273
+  rho=0.45507 (2/20)
+    fp=0.0031 tp=0.0667  [8.7s]
+   median nu  = 0.111
+   median |eta| = 3.948
+  rho=0.35712 (3/20)
+    fp=0.0101 tp=0.1444  [8.4s]
+   median nu  = 0.166
+   median |eta| = 3.205
+  rho=0.28025 (4/20)
+    fp=0.0251 tp=0.2222  [8.1s]
+   median nu  = 0.216
+   median |eta| = 2.831
+  rho=0.21993 (5/20)
+    fp=0.0496 tp=0.3333  [8.0s]
+   median nu  = 0.26
+   median |eta| = 2.253
+  rho=0.17259 (6/20)
+    fp=0.0792 tp=0.4333  [8.2s]
+   median nu  = 0.334
+   median |eta| = 2.103
+  rho=0.13545 (7/20)

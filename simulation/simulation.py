@@ -13,11 +13,12 @@ python -m simulation.simulation --method em_diagonal --num_simulations 10 --file
 
 import argparse
 import numpy as np
-from method import EM_algorithm as em
 import json
 import os
-from method import aat_vae
-from simulation import simulation_data_generator as dg
+
+from method import EM_algorithm as em
+from method import aat_vae, tlasso
+import simulation.simulation_data_generator as dg
 
 rng = np.random.default_rng()
 
@@ -35,14 +36,14 @@ if __name__ == "__main__":
         "--p",
         type=int,
         default=100,
-        help="Dimension of observations. Default: 5.",
+        help="Dimension of observations. Default: 100.",
     )
     
     parser.add_argument(
         "--n",
         type=int,
         default=50,
-        help="Number of observations. Default: 2000.",
+        help="Number of observations. Default: 50.",
     )
 
     parser.add_argument(
@@ -54,16 +55,9 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--method",
-        type=str.upper,
-        choices=["VAE", "EM_EXACT", "EM_DIAGONAL", "EM_MWG", "EM_MWGP", "EM_IMPORTANCE"],
-        default="VAE",
-        help="Parameter estimation method. Default: VAE.",
-    )
-
-    parser.add_argument(
-        "--diagnostics",
-        action="store_true",
-        help="Run eta-nu identifiability diagnostics after fitting the VAE.",
+        type=str,
+        default="EM_DIAGONAL",
+        help="Parameter estimation method. Default: EM_DIAGONAL.",
     )
 
     parser.add_argument(
@@ -79,12 +73,17 @@ if __name__ == "__main__":
     """
     True distribution parameters
     """
+
+    # Parameters
     n,p = args.n, args.p
-    mu_true  = np.zeros(p)
-    eta_true = rng.uniform(low=4, high=5, size=p)
-    # nu_true = rng.uniform(low=1.4, high=1.5, size=p)
-    nu_true = np.full(p,0.5)
-    Theta_true = dg.make_true_theta(p)
+    SEED = 20260814
+    rng = np.random.default_rng(SEED)
+
+    mu_true = np.array([0.5, -0.8, 1.2, -0.4, 0.7])
+    nu_true = np.array([0.8, 0.45, 0.9, 1.5, 0.3])       
+    eta_true = np.array([1.0, 1.1, 0.9, 1.2, 1.05])
+    
+    Theta_true = dg.make_true_theta(p, rng, prob = 0.1)
     
     """
     Run the specified method (VAE or EM) to estimate parameters from the simulated data.
@@ -106,11 +105,14 @@ if __name__ == "__main__":
 
             model, history = aat_vae.fit_aat_vae(Y, config=config)
             result = model.decoder.estimates()
-
+        elif args.method == "tslasso":
+            result = tlasso.run_tstar_varlasso(
+                Y,
+                n_iter=500,
+                rho=0.05,
+                tol=1e-8,
+            )
         elif args.method == "EM_EXACT":
-            if args.diagnostics:
-                parser.error("--diagnostics can only be used with --method VAE")
-
             result = em.run_em_exact(
                 Y,
                 n_iter=500,
@@ -119,19 +121,13 @@ if __name__ == "__main__":
                 run_until_convergence=False,
             )
         elif args.method == "EM_DIAGONAL":
-            if args.diagnostics:
-                parser.error("--diagnostics can only be used with --method VAE")
-
             result = em.run_em_diagonal(
                 Y,
                 n_iter=200,
-                rho=0.0025,
-                tol = 1e-5,
+                rho=0.20,
+                tol = 1e-8,
             )
         elif args.method == "EM_MWG":
-            if args.diagnostics:
-                parser.error("--diagnostics can only be used with --method VAE")
-
             result = em.run_em_MWG(
                 Y,
                 n_iter=100,
@@ -144,25 +140,17 @@ if __name__ == "__main__":
                 random_state=42,
             )
         elif args.method == "EM_MWGP":
-            if args.diagnostics:
-                parser.error("--diagnostics can only be used with --method VAE")
-
             result = em.run_em_MWGP(
                 Y,
-                n_iter=100,
-                rho=0.0025,
+                n_iter=50,
+                rho=0.1,
                 verbose=True,
-                err=1e-3,
-                run_until_convergence=False,
-                mcmc_samples=100,
+                mcmc_samples=500,
                 mcmc_thin=1,
                 mcmc_warmup=30,
                 random_state=42,
             )
         elif args.method == "EM_IMPORTANCE":
-            if args.diagnostics:
-                parser.error("--diagnostics can only be used with --method VAE")
-
             result = em.run_em_importance(
                 Y,
                 n_iter=100,

@@ -4,7 +4,7 @@ from matplotlib import pyplot as plt
 from scipy.stats import norm, skew
 from scipy.optimize import brentq
 
-def simulate_aat_data(n, p, Theta_true, mu, eta, nu, rng):
+def simulate_aat_data(n, p, Theta_true, mu, eta, nu, rng = None):
     Psi_true = np.linalg.inv(Theta_true)
     alpha = 2.0 / nu
     beta = 2.0 / nu
@@ -42,7 +42,7 @@ def simulate_aat_data(n, p, Theta_true, mu, eta, nu, rng):
 # of Theta_true is the estimation target, and nothing more than that.
 # --------------------------------------------------------------------------
 
-def simulate_classical_t_data(n, p, Theta_true, mu, nu, rng):
+def simulate_classical_t_data(n, p, Theta_true, mu, nu, rng = None):
     """Classical multivariate t, F&D Sec. 2: ONE divisor per OBSERVATION.
 
         Y_i = mu + sqrt(tau_i) * X_i,
@@ -74,7 +74,7 @@ def simulate_classical_t_data(n, p, Theta_true, mu, nu, rng):
     Y = mu[None, :] + np.sqrt(tau)[:, None] * X
     return Y, tau
 
-def simulate_alternative_t_data(n, p, Theta_true, mu, nu, rng):
+def simulate_alternative_t_data(n, p, Theta_true, mu, nu, rng = None):
     """Modified alternative t: Finegold & Drton's t* with a per-coordinate nu_j.
 
         Y_j = mu_j + sqrt(tau_j) * X_j,
@@ -119,9 +119,9 @@ def simulate_alternative_t_data(n, p, Theta_true, mu, nu, rng):
     return Y, tau
 
 
-def simulate_gaussian_data(n,p, Theta_true):
+def simulate_gaussian_data(n,p, Theta_true, rng = None):
     Psi_true = np.linalg.inv(Theta_true)
-    Y = np.random.multivariate_normal(mean=np.zeros(p), cov=Psi_true, size=n)
+    Y = rng.multivariate_normal(mean=np.zeros(p), cov=Psi_true, size=n)
     return Y
 
 
@@ -130,7 +130,7 @@ def simulate_noisy_gaussian_data(n, p, Theta_true,
                   outlier_frac=0.0, 
                   outlier_scale=4.0,
                   noise_scale=0.0,
-                  seed=None):
+                  rng = None):
     """
     
     Parameters:
@@ -155,12 +155,10 @@ def simulate_noisy_gaussian_data(n, p, Theta_true,
     Y : (n, p) array
         generated observed data
     """
-    if seed is not None:
-        np.random.seed(seed)
     
     # 1. Generate multivariate Gaussian data
     Psi_true = np.linalg.inv(Theta_true)
-    Y = np.random.multivariate_normal(mean=np.zeros(p), cov=Psi_true, size=n)
+    Y = rng.multivariate_normal(mean=np.zeros(p), cov=Psi_true, size=n)
     
     # 2. Add skewness
     if skewness != 0:
@@ -171,13 +169,13 @@ def simulate_noisy_gaussian_data(n, p, Theta_true,
     # 3. Add outliers
     n_outliers = int(n * outlier_frac)
     if n_outliers > 0:
-        idx = np.random.choice(n, size=n_outliers, replace=False)
+        idx = rng.choice(n, size=n_outliers, replace=False)
         scale = outlier_scale * Y.std(axis=0, ddof=1)
-        Y[idx] = np.random.normal(loc=0, scale=scale, size=(n_outliers, p))
+        Y[idx] = rng.normal(loc=0, scale=scale, size=(n_outliers, p))
     
     # 4. 
     if noise_scale > 0:
-        noise = np.random.normal(loc=0, 
+        noise = rng.normal(loc=0, 
                                  scale=noise_scale * Y.std(axis=0, ddof=1), 
                                  size=(n, p))
         Y = Y + noise
@@ -190,34 +188,6 @@ Contaminated-normal data generator.
 Finegold & Drton (2011), "Robust graphical modeling of gene networks using
 classical and alternative t-distributions", AOAS 5(2), Section 6.1.
 """
-
-def make_true_theta(p, prob=0.01, min_eig=0.6, rng=None):
-    """Random sparse precision matrix.
-
-    (a) lower-triangular entries iid in {-1, 0, 1} w.p. {1%, 98%, 1%}
-    (b) symmetrize
-    (c) theta_kk = 1 + h_k  (h_k = # nonzeros in row k)
-    then shrink the diagonal by the largest common factor keeping
-    lambda_min(Theta) == min_eig.
-    """
-    rng = np.random.default_rng(rng)
-
-    off = np.zeros((p, p))
-    il = np.tril_indices(p, -1)
-    off[il] = rng.choice([-1.0, 0.0, 1.0], size=il[0].size,
-                         p=[prob, 1 - 2 * prob, prob])
-    off = off + off.T
-
-    h = (off != 0).sum(axis=1)
-    d = 1.0 + h
-
-    def lmin(c):
-        return np.linalg.eigvalsh(off + c * np.diag(d)).min()
-
-    # c=1 -> lambda_min >= 1 (diagonal dominance); c=0 -> lambda_min <= 0
-    c = brentq(lambda c: lmin(c) - min_eig, 1e-10, 1.0, xtol=1e-12)
-    return off + c * np.diag(d)
-
 
 def simulate_contaminated_normal_data(n, p, Theta_true, eps=0.02,
                             contam_var=0.2, mult=2.5, random_sign=False, rng=None):
@@ -242,6 +212,33 @@ def simulate_contaminated_normal_data(n, p, Theta_true, eps=0.02,
     Y.flat[idx] = vals
 
     return Y
+
+def make_true_theta(p, rng, prob=0.01, min_eig=0.6):
+    """Random sparse precision matrix.
+
+    (a) lower-triangular entries iid in {-1, 0, 1} w.p. {1%, 98%, 1%}
+    (b) symmetrize
+    (c) theta_kk = 1 + h_k  (h_k = # nonzeros in row k)
+    then shrink the diagonal by the largest common factor keeping
+    lambda_min(Theta) == min_eig.
+    """
+
+
+    off = np.zeros((p, p))
+    il = np.tril_indices(p, -1)
+    off[il] = rng.choice([-1.0, 0.0, 1.0], size=il[0].size,
+                         p=[prob, 1 - 2 * prob, prob])
+    off = off + off.T
+
+    h = (off != 0).sum(axis=1)
+    d = 1.0 + h
+
+    def lmin(c):
+        return np.linalg.eigvalsh(off + c * np.diag(d)).min()
+
+    # c=1 -> lambda_min >= 1 (diagonal dominance); c=0 -> lambda_min <= 0
+    c = brentq(lambda c: lmin(c) - min_eig, 1e-10, 1.0, xtol=1e-12)
+    return off + c * np.diag(d)
 
 if __name__ == "__main__":
     n, p = 2000, 20

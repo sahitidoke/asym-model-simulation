@@ -1,0 +1,78 @@
+==============================================================================
+ROC run: aat_fixed_nu
+==============================================================================
+  started : 2026-08-18 02:56:34
+  outputs : results\simulations\roc\aat_fixed_nu/   (per-replicate figures, JSON, this log)
+  commit  : 38604bb (dirty working tree)
+
+[design]
+  replicates       : 50
+  p, n             : 100, 50
+  rho grid         : 20 points, min_ratio 0.01, rebuilt per method and replicate off that method's own converged S_tau
+  theoretical rho  : sqrt(log p / n) = 0.30349  (pilot only; not a point on the curve)
+  FP_end, max_extra: 0.3, 50
+
+[true parameters]  simulate_aat_data
+  mu_true : all 0   (length 100)
+  eta_true: min -2.6   median 0.14   max 2.6   (length 100)
+            [-2.6000,  0.7500,  0.4200, -0.1400, -2.6000,  0.7500, -0.4200,
+             -0.1400,  2.6000,  0.7500,  0.4200, -0.1400,  2.6000, -0.7500,
+              0.4200,  0.1400,  2.6000, -0.7500, -0.4200,  0.1400,  2.6000,
+             -0.7500, -0.4200,  0.1400, -2.6000, -0.7500, -0.4200,  0.1400,
+             -2.6000,  0.7500,  0.4200,  0.1400,  2.6000, -0.7500,  0.4200,
+             -0.1400,  2.6000, -0.7500,  0.4200, -0.1400, -2.6000,  0.7500,
+             -0.4200,  0.1400,  2.6000, -0.7500, -0.4200,  0.1400,  2.6000,
+             -0.7500,  0.4200,  0.1400, -2.6000, -0.7500,  0.4200, -0.1400,
+             -2.6000,  0.7500,  0.4200,  0.1400, -2.6000,  0.7500,  0.4200,
+              0.1400,  2.6000, -0.7500, -0.4200,  0.1400, -2.6000, -0.7500,
+             -0.4200,  0.1400,  2.6000,  0.7500, -0.4200,  0.1400,  2.6000,
+             -0.7500, -0.4200,  0.1400,  2.6000,  0.7500,  0.4200,  0.1400,
+             -2.6000, -0.7500,  0.4200,  0.1400, -2.6000, -0.7500,  0.4200,
+             -0.1400,  2.6000,  0.7500, -0.4200,  0.1400, -2.6000,  0.7500,
+              0.4200, -0.1400]
+  nu_true : min 0.15   median 0.775   max 1.85   (length 100)
+            [0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500, 0.1500, 0.5500, 1.0000, 1.8500,
+             0.1500, 0.5500, 1.0000, 1.8500]
+  Theta   : REDRAWN EVERY REPLICATE -- make_true_theta(p=100), prob=0.01, min_eig=0.6
+            (~1% of the 4950 pairs are edges; the exact count is logged per replicate)
+            NOTE: this is the SUPPORT of Theta, which is the target of the ROC curves;
+            it is not the conditional independence graph of Y in this model.
+  rng     : entropy 20260814
+            (np.random.default_rng(20260814) replays the same draws)
+
+[methods]  nu treatment for this run
+  tlasso    (run_tlasso)
+      nu   : FIXED at nu = 3, not estimated
+      args : n_iter=200, verbose=False, tol=1e-05
+  t*lasso   (run_tstar_varlasso)
+      nu   : FIXED at nu = 3, not estimated
+      args : n_iter=200, verbose=False, tol=1e-05
+  t+lasso   (run_em_diagonal)
+      nu   : ESTIMATED per coordinate (nu_j), bracket [0.0001, 100], nu_j = 0 meaning that coordinate went Gaussian
+      args : n_iter=200, verbose=False, tol=1e-05
+  glasso    (graphical_lasso)
+      nu   : not a parameter of this model
+      args : max_iter=2000, verbose=False
+  ~t+lasso  (run_em_exact)
+      nu   : ESTIMATED per coordinate (nu_j), bracket [0.0001, 100], nu_j = 0 meaning that coordinate went Gaussian
+      args : n_iter=200, verbose=False, tol=1e-05
+  Reading the per-rho nu lines below: tlasso and t*lasso print a scalar `nu`,
+  run_em_diagonal a `median nu`/`median eta` over coordinates. The two nu's are NOT
+  comparable -- tau ~ Gamma(nu/2, nu/2) for the t models, so small nu is the heavy
+  tail, while EM_algorithm's tau_j ~ Inv-Gamma(2/nu_j, 2/nu_j) puts the heavy tail at
+  large nu_j.
+==============================================================================
+
+[parallel] 10 worker processes, 1 BLAS thread each; data pre-drawn serially, so the numbers match a serial run
+

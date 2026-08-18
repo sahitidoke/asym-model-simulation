@@ -47,7 +47,7 @@ args = parser.parse_args()
 if args.database == "sachs_min":
     Y, NAMES = sachs_min.load_control()
 elif args.database == "SNP500":
-    Y, NAMES = SNP500.load_snp_500()
+    Y, NAMES = SNP500.load_snp_500(50)
 
 # Standardize data
 if (args.standardize):

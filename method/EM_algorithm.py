@@ -1,15 +1,9 @@
 import numpy as np
 from tqdm import tqdm
 from scipy.special import kve, digamma, logsumexp, gammaln
-from scipy.optimize import brentq, minimize_scalar
+from scipy.optimize import brentq
 from scipy.stats import skew, geninvgauss
 from sklearn.covariance import graphical_lasso
-
-
-NU_MIN, NU_MAX = 1e-2, 0.95   # bracket for the nu root
-GAUSS_LR = 2.71   # chi-bar^2(0,1) 5% point; nu = 0 is a boundary of the space
-GAUSS_BURN_IN = 10              # iterations before a coordinate may be pinned Gaussian
-OLVER_ORDER = 30.0   # crossover; kve is exact below, Olver is ~1e-14 above
 
 def gig_moment(r, lam, chi, psi):
     # Non-finite output is the signal _tau_moments branches on, not an error.
@@ -22,42 +16,42 @@ def gig_log_moment_fd(lam, chi, psi, h=1e-5):
         np.log(kve(lam + h, x)) - np.log(kve(lam - h, x))
     ) / (2 * h)
 
-def log_kv(lam, s):
-    """log K_lam(s), stable for large |lam| where kve overflows.
-
-    K_lam(s) ~ Gamma(|lam|) (2/s)^|lam| / 2 for small s, so kve (which only
-    removes an exp(s) factor) still overflows once |lam| is a few hundred --
-    precisely the light-tail end, nu -> 0, where a = 2/nu is large. Above the
-    crossover use Olver's uniform asymptotic expansion in the order, which is
-    valid for ALL s > 0 and returns the logarithm directly.
-    """
-    lam = np.abs(lam)                     # K_{-lam} == K_{lam}
-    s = np.asarray(s, dtype=float)
-    out = np.empty_like(s)
-
-    small = lam < OLVER_ORDER
-    if small:
-        kv = kve(lam, s)
-        return np.log(kv) - s
-
-    z = s / lam
-    w = np.sqrt(1.0 + z * z)
-    t = 1.0 / w
-    eta = w + np.log(z / (1.0 + w))
-
-    t2 = t * t
-    u1 = (3.0 * t - 5.0 * t * t2) / 24.0
-    u2 = (81.0 * t2 - 462.0 * t2 * t2 + 385.0 * t2 * t2 * t2) / 1152.0
-    u3 = (30375.0 * t * t2 - 369603.0 * t * t2 * t2
-          + 765765.0 * t * t2 * t2 * t2 - 425425.0 * t * t2 * t2 * t2 * t2) / 414720.0
-    ser = 1.0 - u1 / lam + u2 / (lam * lam) - u3 / (lam ** 3)
-
-    out = (0.5 * np.log(np.pi / (2.0 * lam)) - lam * eta
-           - 0.25 * np.log(1.0 + z * z) + np.log(ser))
-    return out
+NU_MIN, NU_MAX = 1e-4, 1000   # bracket for the nu root
+GAUSS_BURN_IN = 10              # iterations before a coordinate may be pinned Gaussian
 
 
 def _tau_moments(nu, eta, theta_diag, resid):
+    """E-step moments of tau, each (n, p):
+    E[1/tau], E[tau], E[tau^-1/2], E[tau^1/2], E[log tau].
+
+    tau_ij | Y ~ GIG(lam_j, chi_ij, psi_j) with lam = -2/nu - 1/2,
+    chi = 4/nu + theta_jj resid^2, psi = theta_jj (eta nu)^2. Two entries are
+    substituted, both limits of that same law -- neither is a different model:
+
+      nu_j == 0   Gaussian: tau_j == 1, so the moments are 1 and E[log tau] 0.
+                  A parameter state, set by _solve_nu, and absorbing.
+      psi -> 0    InvGamma(a, chi/2), a = -lam = 2/nu + 1/2. Exact at psi == 0
+                  (eta_j == 0, where the Bessel ratio is 0/0) and an O(psi)
+                  approximation for psi merely small. Taken per ENTRY wherever
+                  the GIG did not evaluate, so every entry the GIG can
+                  represent keeps its exact GIG moment, and a coordinate whose
+                  eta is small this iteration is free to re-acquire skew the
+                  next -- this is a way to compute a number, not a state a
+                  coordinate enters.
+
+    E[tau^r] = (chi/2)^r Gamma(a - r)/Gamma(a) needs a > r, so the r = 1 moment
+    needs a > 1, i.e. nu < 4. That is a property of the law, not of the
+    approximation: at psi = 0 with nu >= 4 the posterior mean of tau really is
+    infinite. gammaln would quietly return log|Gamma| there and hand back a
+    wrong-signed moment, so it is checked rather than trusted.
+
+    Also returns n_ig, (p,) int: how many of the n entries of each coordinate
+    took the Inv-Gamma substitution. It is a COUNT OF ENTRIES, not a state --
+    which is the whole point of reporting it, since a coordinate is free to
+    have some entries on the exact GIG and the rest on the limit. Gaussian
+    coordinates are not in `live` and score 0; a caller reading n_ig has to
+    exclude them by nu, or it will read them as pure GIG.
+    """
     n, p = resid.shape
     M = {r: np.ones((n, p)) for r in (-1.0, 1.0, -0.5, 0.5)}
     L_log = np.zeros((n, p))
@@ -108,77 +102,50 @@ def _tau_moments(nu, eta, theta_diag, resid):
     L_log[:, live] = blk_log
     return M[-1.0], M[1.0], M[-0.5], M[0.5], L_log, n_ig
 
-def _marginal_ll(nu_j, y, mu_j, gam_j, Sig_jj):
-    """sum_i log f_{Y_j}(y_i | mu_j, eta_j, nu_j, Sigma_jj).
 
-    Exact: tau_j is integrated out analytically (Bessel identity, Sec 3.1).
-    No posterior moments, no L_ij(h), no E-step.
-    """
-    n = y.size
-    d = y - mu_j
+def _solve_nu(S, n, allow_gauss):
+    """Per-coordinate root of the nu stationarity condition
 
-    if nu_j <= 0.0:
-        # tau -> 1 with gamma FIXED leaves the shift in place: N(mu + gamma,
-        # Sigma_jj), not N(mu, Sigma_jj). Only mu_j + gamma_j is identified
-        # here -- the same degeneracy _solve_mu_gamma pins by setting gamma=0.
-        dg = d - gam_j
-        return -0.5 * (n * np.log(2.0 * np.pi * Sig_jj) + (dg * dg).sum() / Sig_jj)
+        f(nu) = n (log a + 1 - digamma(a)) - S_j,    a = 2/nu,
 
-    a = 2.0 / nu_j
-    gam = gam_j    
+    which increases in nu, so the bracket holds at most one root and the two
+    ways out of it are opposite limits:
 
-    if gam == 0.0:                                    # B_j = 0: scaled t, 4/nu df
-        df = 4.0 / nu_j
-        return n * (gammaln(0.5 * (df + 1.0)) - gammaln(0.5 * df)
-                    - 0.5 * np.log(np.pi * df * Sig_jj)) \
-               - 0.5 * (df + 1.0) * np.log1p(d * d / (Sig_jj * df)).sum()
+      f(NU_MIN) >= 0   The root is below the bracket. Since
+                       S_j = sum_i E[log tau] + E[1/tau] >= n always
+                       (log x + 1/x >= 1, equality only at x == 1), this end IS
+                       S_j at its floor: the latent has collapsed onto 1 and
+                       the E-step carries no information about nu_j. Return 0,
+                       which every caller reads as the Gaussian path.
+      f(NU_MAX) <= 0   Tails heavier than NU_MAX can express. Clamp, and count
+                       it -- the opposite limit, and not interchangeable.
 
-    lam = -(a + 0.5)
-    logC = a * np.log(a) - gammaln(a) - 0.5 * np.log(2.0 * np.pi * Sig_jj)
-    R = d * d + 4.0 * Sig_jj / nu_j                   # = 2 * Sigma_jj * A_j
-    s = abs(gam) * np.sqrt(R) / Sig_jj                # = 2 * sqrt(A_j B_j)
-
-    ll = (n * (np.log(2.0) + logC)
-          + gam * d.sum() / Sig_jj
-          + 0.5 * lam * np.log(R / (gam * gam)).sum()
-          + log_kv(lam, s).sum())
-    return ll if np.isfinite(ll) else -np.inf
-
-
-def _solve_nu(Y, mu, gam, Sig_diag, allow_gauss, xatol=1e-6):
-    """Per-coordinate maximizer of the marginal log likelihood in nu_j.
-
-      nu_j == NU_MAX   tails heavier than the bracket can express -> counted.
-      nu_j == 0.0      the Gaussian end, and now a LIKELIHOOD COMPARISON
-                       against N(mu_j, Sigma_jj) rather than the old test for
-                       S_j resting on its floor.
+    nu_j = 0 is absorbing: tau_j == 1 pins S_j at exactly n thereafter, and no
+    later mu, Theta or eta can perturb it. `allow_gauss` is the per-coordinate
+    permission to enter that state, and the caller passes
+    (it >= GAUSS_BURN_IN) | gauss: a NEW pin waits until mu and Theta have
+    settled, since early on a too-small theta_jj can drive S_j to its floor for
+    reasons that have nothing to do with the coordinate's tails, while a
+    coordinate ALREADY pinned -- carried in by a warm-started init, say -- must
+    never be released, or absorbing would only hold after the burn-in.
 
     Returns (nu, n_clamped).
     """
-    p = Y.shape[1]
-    allow_gauss = np.broadcast_to(allow_gauss, (p,))
-    nu = np.empty(p)
+    def f(nu_j, S_j):
+        a = 2.0 / nu_j
+        return n * (np.log(a) + 1.0 - digamma(a)) - S_j
+
+    allow_gauss = np.broadcast_to(allow_gauss, S.shape)
+    nu = np.empty(S.shape[0])
     n_clamped = 0
-
-    for j in range(p):
-        y, mu_j, gam_j, Sig_jj = Y[:, j], mu[j], gam[j], Sig_diag[j]
-        ll = lambda v: _marginal_ll(v, y, mu_j, gam_j, Sig_jj)
-
-        res = minimize_scalar(lambda u: -ll(np.exp(u)),
-                              bounds=(np.log(NU_MIN), np.log(NU_MAX)),
-                              method='bounded', options={'xatol': xatol})
-
-        best_nu, best_ll = float(np.exp(res.x)), float(-res.fun)
-        for cand in (NU_MIN, NU_MAX):
-            v = ll(cand)
-            if v > best_ll:
-                best_nu, best_ll = cand, v
-        if allow_gauss[j] and 2.0 * (best_ll - ll(0.0)) < GAUSS_LR:
-            best_nu = 0.0
-
-        nu[j] = best_nu
-        n_clamped += (best_nu == NU_MAX)
-
+    for j in range(S.shape[0]):
+        if f(NU_MIN, S[j]) >= 0.0:
+            nu[j] = 0.0 if allow_gauss[j] else NU_MIN
+        elif f(NU_MAX, S[j]) <= 0.0:
+            nu[j] = NU_MAX
+            n_clamped += 1
+        else:
+            nu[j] = brentq(f, NU_MIN, NU_MAX, args=(S[j],), xtol=1e-6)
     return nu, n_clamped
 
 
@@ -208,7 +175,6 @@ def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True, tol=None,
         nu = init.get("nu", np.full(p, 0.5))
         eta = init.get("eta", np.where(nu > 0.0, 0.5 / np.where(nu > 0.0, nu, 1.0), 0.0))
 
-    Sigma = np.linalg.inv(Theta)
     # paths/nu_at_max are per ITERATION, like every other history entry: the
     # last E-step is what the returned Theta was computed from, but a fit that
     # spent its middle iterations on the Inv-Gamma limit and drifted back looks
@@ -253,6 +219,16 @@ def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True, tol=None,
         mu_new = np.where(gauss, T / n, (B * R - n * T) / denom)
         gamma_new = np.where(gauss, 0.0, (A * T - n * R) / denom)
 
+        # M-step for nu. A NEW Gaussian pin waits for the burn-in, since it is
+        # absorbing; a coordinate already pinned keeps its permission, or the
+        # guard would release it.
+        nu_new, n_clamped = _solve_nu(
+            (L_log + M_neg1).sum(axis=0), n,
+            allow_gauss=(it >= GAUSS_BURN_IN) | gauss) # or gauss for warm start
+        n_nu_clamped += n_clamped
+        gamma_new = np.where(nu_new > 0.0, gamma_new, 0.0)
+        eta_new = gamma_new / np.where(nu_new > 0.0, nu_new, 1.0)
+
         # Compute the expected S given mu, gamma
         resid = Y - mu_new[None, :]
         z_mean = M_neg_half * resid - M_pos_half * gamma_new[None, :]
@@ -285,24 +261,13 @@ def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True, tol=None,
             n_glasso_fail += 1
             Theta_new = Theta
 
-        Sigma_new = np.linalg.inv(Theta_new)
-        # M-step for nu. A NEW Gaussian pin waits for the burn-in, since it is
-        # absorbing; a coordinate already pinned keeps its permission, or the
-        # guard would release it.
-        nu_new, n_clamped = _solve_nu(
-            Y, mu_new, gamma_new, np.diag(Sigma_new),
-            allow_gauss=(it >= GAUSS_BURN_IN))
-        n_nu_clamped += n_clamped
-        gamma_new = np.where(nu_new > 0.0, gamma_new, 0.0)
-        eta_new = gamma_new / np.where(nu_new > 0.0, nu_new, 1.0)
-
         diff = (np.abs(mu_new - mu).sum() + np.abs(eta_new - eta).sum()
                 + np.abs(nu_new - nu).sum())
         rel_change = (
             np.abs(mu_new - mu).sum() + np.abs(Theta_new - Theta).sum()
         ) / (np.abs(mu).sum() + np.abs(Theta).sum())
 
-        mu, nu, eta, Theta, Sigma = mu_new, nu_new, eta_new, Theta_new, Sigma_new
+        mu, nu, eta, Theta = mu_new, nu_new, eta_new, Theta_new
 
         hist["mu"].append(mu.copy())
         hist["eta"].append(eta.copy())
@@ -335,7 +300,7 @@ def run_em_diagonal(Y, n_iter=100, rho=0.05, init= None, verbose=True, tol=None,
     path_counts["n_entries"] = n * (p - path_counts["gaussian"])
     path_counts["max"] = dict(zip(keys, (int(v) for v in paths.max(axis=0))))
 
-    return {"mu": mu, "eta": eta, "nu": nu, "Theta": Theta, "Sigma": Sigma, "history": hist,
+    return {"mu": mu, "eta": eta, "nu": nu, "Theta": Theta, "history": hist,
             "S_tau": S_tau, "n_glasso_fail": n_glasso_fail,
             "n_nu_clamped": n_nu_clamped,
             # Coordinates at NU_MAX at the end, and the worst any iteration got

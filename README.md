@@ -20,7 +20,7 @@ All three close with a graphical lasso step on Θ. The variational E-step exploi
 ## Results
 
 Five methods compared across six data-generating regimes, 50 simulations each, p = 100, n = 50. The FPR axis is cut at 0.3 because ν-optimization becomes ill-conditioned beyond that for small ρ.
-roc_curves.png
+![ROC curves](roc_curves.png)
 
 The takeaway: on Gaussian, classical *t*, and homogeneous alternative *t* data, our methods match the correctly-specified baselines — no penalty for the extra flexibility. On heterogeneous ν̄ and asymmetric data (panels e, f), they pull clearly ahead. The gap is starkest under asymmetry, where glasso and tlasso collapse to near-chance (AUC 0.069 and 0.070) while `t⁺-lasso` holds at 0.178.
 

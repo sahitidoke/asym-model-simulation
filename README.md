@@ -26,7 +26,7 @@ The takeaway: on Gaussian, classical *t*, and homogeneous alternative *t* data, 
 
 ## Applications
 
-**S&P 500 log-returns** (2020–2026). Nodes are stocks, edges indicate conditional dependence after accounting for all other returns.
+**S&P 500 log-returns** (2020–2026). Nodes are stocks, edges indicate conditional dependence after accounting for all other returns ![SNP500](figures/snp500_graph.png)
 
 
 The clean equivalence `Θ_jk = 0 ⟺ conditional independence` **does not hold** for this model — it already fails for the Student-*t*. The quadratic form sits inside a power rather than an exponential, so zeroing the cross term doesn't factor the density.
